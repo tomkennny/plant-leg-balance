@@ -37,6 +37,36 @@
   .bar{height:10px;background:#111b25;border-radius:99px;overflow:hidden;margin-top:6px}
   .bar i{display:block;height:100%;background:var(--acc)}
   .warnbox{border-color:var(--warn);color:var(--warn);font-size:13px}
+  h3{font-size:13px;margin:14px 0 6px;color:var(--quiet);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .overlay{position:fixed;inset:0;background:rgba(5,10,15,.88);display:flex;align-items:flex-start;justify-content:center;
+           padding:calc(16px + env(safe-area-inset-top)) 16px 16px;z-index:10;overflow:auto}
+  .onb-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;max-width:480px;width:100%}
+  .onb-card h2{font-size:20px} .onb-card p,.onb-card li{font-size:15px;line-height:1.5}
+  .dots{display:flex;gap:6px;justify-content:center;margin:14px 0 4px}
+  .dots i{width:8px;height:8px;border-radius:50%;background:var(--line)} .dots i.on{background:var(--acc)}
+  .linkbtn{background:none;border:0;color:var(--quiet);text-decoration:underline;width:100%;margin-top:12px;font-size:13px}
+  .demo-svg{width:100%;display:block;background:#111b25;border-radius:10px}
+  .demo-cap{min-height:44px;font-size:16px;margin:10px 0 4px;font-weight:600;line-height:1.35}
+  .demo-cap span{color:var(--acc)}
+  .demo-ctrl{display:flex;gap:8px} .demo-ctrl .btn{margin-top:4px}
+  .legend{font-size:12px;color:var(--quiet);margin-top:6px}
+  .legend b{color:var(--acc)} .legend em{color:var(--blue);font-style:normal;font-weight:600}
+  .mode-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;cursor:pointer}
+  .mode-card.on{border-color:var(--acc);cursor:default}
+  .mode-head{display:flex;gap:12px;align-items:center}
+  .mode-head svg{width:76px;height:56px;flex:none;background:#111b25;border-radius:8px}
+  .mode-head b{font-size:17px}
+  .badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:99px;background:#111b25;border:1px solid var(--line);color:var(--quiet);margin-left:6px;vertical-align:2px}
+  .mode-body{margin-top:12px}
+  ol.steps{padding-left:22px;margin:0} ol.steps li{margin:4px 0;font-size:15px;line-height:1.4;transition:color .2s}
+  ol.steps li.now{color:var(--acc);font-weight:600}
+  ul.plain{padding-left:18px;margin:0} ul.plain li{font-size:14px;line-height:1.45;margin:3px 0}
+  .tip{background:rgba(74,163,255,.1);border-left:3px solid var(--blue);padding:8px 10px;border-radius:6px;font-size:14px;margin-top:12px}
+  .plantnote{font-size:13px;color:var(--acc);margin-top:6px}
+  .toggle{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:14px}
+  .toggle input{width:22px;height:22px;accent-color:var(--acc)}
+  .hidden-empty:empty{display:none}
+  #liveTip{text-align:center;font-size:15px;color:var(--quiet);margin-top:4px;min-height:20px}
 </style>
 </head>
 <body>
@@ -46,45 +76,64 @@
 
 <!-- SETUP -->
 <section id="setup">
+  <div class="row" style="margin-bottom:12px">
+    <button class="btn ghost small" id="howBtn" style="margin-top:0">How to play</button>
+    <button class="btn ghost small" id="phoneBtn" style="margin-top:0">Where does the phone go?</button>
+  </div>
   <div class="card">
-    <h2>Setup</h2>
-    <label>Kicking foot</label>
-    <div class="seg" data-key="foot"><button data-v="R" class="on">Right (plant left)</button><button data-v="L">Left (plant right)</button></div>
-    <label>Phone placement on plant thigh</label>
-    <div class="seg" data-key="place"><button data-v="side" class="on">Side, screen facing out</button><button data-v="front">Front pocket</button></div>
-    <label>Age band (sets the cues)</label>
+    <h2>About you</h2>
+    <label>Which foot do you kick with?</label>
+    <div class="seg" data-key="foot"><button data-v="R" class="on">Right foot</button><button data-v="L">Left foot</button></div>
+    <div class="plantnote" id="plantNote"></div>
+    <label>Where is the phone tucked into your waistband?</label>
+    <div class="seg" data-key="place"><button data-v="side" class="on">Side of hip, screen out</button><button data-v="front">Front of hip</button></div>
+    <label>Age group (changes the coaching tips)</label>
     <div class="seg" data-key="age"><button data-v="junior">8 to 12</button><button data-v="youth">13 to 17</button><button data-v="senior" class="on">18+</button></div>
-    <label>Mode</label>
-    <div class="seg" data-key="mode"><button data-v="statue" class="on">Statue</button><button data-v="plant">Plant &amp; Hold</button><button data-v="shadow">Shadow Kick</button></div>
+  </div>
+
+  <h2 style="margin:16px 2px 8px">Choose a mode</h2>
+  <div id="modeCards"></div>
+
+  <div class="card">
+    <h2>Level and reps</h2>
     <label>Level</label>
     <div class="seg" data-key="level"><button data-v="1" class="on">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
+    <p class="note" id="levelInfo"></p>
     <label>Reps per set</label>
     <div class="seg" data-key="reps"><button data-v="3">3</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div>
-    <p class="note" id="levelInfo"></p>
-    <div id="progress" class="note"></div>
+    <label class="toggle"><input type="checkbox" id="guideChk" checked> Talk me through each rep (best for beginners)</label>
+    <div id="progress" class="note" style="margin-top:10px"></div>
   </div>
   <button class="btn" id="startBtn">Start set</button>
   <div class="row">
-    <button class="btn ghost small" id="fitBtn">Fit check</button>
-    <button class="btn ghost small" id="demoBtn">Demo: simulated sensors</button>
+    <button class="btn ghost small" id="fitBtn">Check phone fit</button>
+    <button class="btn ghost small" id="demoBtn">Try with fake sensors</button>
   </div>
-  <div class="card note" style="margin-top:12px">
-    <b>How it works:</b> tap Start, strap the phone to the lateral thigh of your plant leg (top of the phone towards the hip), and stand tall on both feet. Audio cues guide every rep, so you don't need the screen. Keep the volume up and the screen on.<br><br>
-    <b>Statue:</b> on "Lift", stand on the plant leg with the kicking leg loaded in a backswing and hold.<br>
-    <b>Plant &amp; Hold:</b> on "Go", take one step into a firm plant and freeze in your follow-through.<br>
-    <b>Shadow Kick:</b> on "Go", do a 3-step approach and a full kick with no ball, then hold the finish.
-  </div>
-  <div id="sensorWarn" class="card warnbox hidden"></div>
+  <div id="sensorWarn" class="card warnbox hidden" style="margin-top:12px"></div>
 </section>
+
+<!-- ONBOARDING -->
+<div id="onb" class="overlay hidden">
+  <div class="onb-card">
+    <div id="onbBody"></div>
+    <div class="dots" id="onbDots"></div>
+    <div class="row">
+      <button class="btn ghost small" id="onbBack">Back</button>
+      <button class="btn small" id="onbNext">Next</button>
+    </div>
+    <button class="linkbtn" id="onbSkip">Skip intro</button>
+  </div>
+</div>
 
 <!-- LIVE -->
 <section id="live" class="hidden">
   <div class="card">
     <div class="status" id="liveStatus">Getting ready</div>
     <div class="big" id="liveBig">-</div>
+    <div id="liveTip"></div>
     <canvas id="bubble" width="600" height="600" style="max-width:260px;margin:0 auto"></canvas>
     <div class="stats">
-      <div class="stat"><b id="sTilt">-</b><span>tilt from ref (&deg;)</span></div>
+      <div class="stat"><b id="sTilt">-</b><span>hip tilt (&deg;)</span></div>
       <div class="stat"><b id="sWob">-</b><span>wobble (&deg;/s)</span></div>
       <div class="stat"><b id="sHz">-</b><span>sample rate (Hz)</span></div>
     </div>
@@ -98,12 +147,13 @@
     <h2>Set results <span class="pill" id="resMode"></span></h2>
     <div id="unlockMsg" class="status hidden" style="color:var(--acc);font-weight:700"></div>
     <table id="repTable"></table>
-    <p class="note">Tap a rep to plot it. Score = 0.40 tilt + 0.25 wobble + 0.25 settle + 0.10 collapse (Statue: 0.65 tilt + 0.35 wobble). Pass = score of 70 or more plus the level's tilt and settle targets.</p>
+    <div id="ballSummary" class="tip hidden-empty"></div>
+    <p class="note">Tap a rep to plot it. Score = 0.40 tilt + 0.25 wobble + 0.25 settle + 0.10 hip dip (Statue: 0.65 tilt + 0.35 wobble). Pass = score of 70 or more plus the level's tilt and settle targets.</p>
   </div>
   <div class="card">
     <h2>Rep trace</h2>
     <canvas id="plot" width="1000" height="520"></canvas>
-    <p class="note"><span style="color:var(--blue)">Blue</span> = thigh tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Green line = foot plant, dashed = settled, grey band = level tilt band.</p>
+    <p class="note"><span style="color:var(--blue)">Blue</span> = hip tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Green line = foot plant, green dashed = settled, blue dashed = ball contact (smart footy), grey band = level tilt band.</p>
     <div id="repDetail" class="note"></div>
     <div class="row">
       <button class="btn ghost small" id="copyBtn">Copy rep CSV</button>
@@ -132,15 +182,15 @@ const CUES = {
   tilt:    {junior:'Be a lighthouse, tall and still!', youth:'Keep your hips level over your plant foot', senior:v=>`Tilt sway ${v.toFixed(1)} degrees, aim for under 3`},
   wobble:  {junior:'Freeze like a statue!', youth:'Squeeze your glutes to quieten the wobble', senior:v=>`Wobble ${Math.round(v)} degrees per second, brace through the hip`},
   settle:  {junior:'Stick the landing like a gymnast!', youth:'Lock in faster after your plant', senior:v=>`Settle ${Math.round(v)} milliseconds, aim for under 500`},
-  collapse:{junior:'Strong leg like a tree trunk!', youth:"Don't sink into your plant leg", senior:v=>`Thigh dropped ${Math.round(v)} degrees after plant, stay firm through contact`}
+  collapse:{junior:'Strong leg like a tree trunk!', youth:"Don't sink into your plant leg", senior:v=>`Hip dipped ${Math.round(v)} degrees after plant, stay firm through contact`}
 };
 const LOSS_TILT = 15;      // deg from reference = balance lost
 const TOUCH_G   = 0.8;     // linear accel spike (g) during hold = free foot touched down
 const PLANT_MIN_G = 0.6;   // min peak (g) to count as a foot plant
-const REP_WINDOW = {plant:5, shadow:6};
+const REP_WINDOW = {plant:5, shadow:6, realkick:7, smartkick:7};
 
 // ---------- State ----------
-const S = {foot:'R', place:'side', age:'senior', mode:'statue', level:1, reps:5};
+const S = {foot:'R', place:'side', age:'senior', mode:'statue', level:1, reps:5, guide:true};
 let demo = false, running = false, stopReq = false;
 let latestU = null, latestUAt = 0, lpG = null;
 let rec = null;            // {t0, samples, ref, lostAt, mode}
@@ -159,7 +209,7 @@ const wrap = a => { while(a>180)a-=360; while(a<-180)a+=360; return a; };
 const angBetween = (a,b) => Math.acos(Math.max(-1,Math.min(1,dot(a,b))))/D;
 const meanVec = arr => { if(!arr.length) return null; const s=[0,0,0]; arr.forEach(u=>{s[0]+=u[0];s[1]+=u[1];s[2]+=u[2];}); return norm(s); };
 const rms = arr => arr.length ? Math.sqrt(arr.reduce((a,b)=>a+b*b,0)/arr.length) : 0;
-// sagittal / frontal components of tilt relative to ref (phone long axis along thigh)
+// sagittal / frontal components of tilt relative to ref (phone upright in waistband)
 function components(u, ref){
   const a = wrap((Math.atan2(u[0],u[1]) - Math.atan2(ref[0],ref[1]))/D); // rotation about screen normal
   const b = wrap((Math.atan2(u[2],u[1]) - Math.atan2(ref[2],ref[1]))/D); // rotation about phone short axis
@@ -290,7 +340,7 @@ function startDemo(){
       front += amp*0.8*Math.sin(lt*1.7+1);
       rr = amp*6 + 4*Math.random();
     }
-    if ((st.phase==='plant'||st.phase==='shadow')){
+    if (['plant','shadow','realkick','smartkick'].includes(st.phase)){
       const tp = st.phase==='plant' ? 1.2 : 2.0;
       if (lt < tp){ sag += 20*Math.sin(lt*6); a = 0.3+0.3*Math.abs(Math.sin(lt*6)); rr = 120*Math.abs(Math.sin(lt*6)); }
       else {
@@ -366,6 +416,10 @@ function analyse(samples, mode, level, lostAt){
   return out;
 }
 function cueFor(r){
+  const k = r.ball ? `${r.ball.rating} kick. ` : '';
+  return k + cueCore(r);
+}
+function cueCore(r){
   if (r.error) return r.error;
   if (r.lost) return S.age==='junior' ? 'Whoops, balance lost. Try again!' : 'Balance lost. Reset and go again.';
   const keys = Object.keys(r.subs); const weakest = keys.reduce((a,b)=> r.subs[a] <= r.subs[b] ? a : b);
@@ -397,15 +451,15 @@ async function recordRep(mode, level){
   return r;
 }
 async function calibrate(){
-  $('liveStatus').textContent = 'Strap phone to plant thigh. Stand tall on both feet.';
-  await say(`Strap the phone to your ${S.foot==='R'?'left':'right'} thigh, then stand tall on both feet.`);
+  $('liveStatus').textContent = 'Tuck the phone into your waistband on your plant-leg hip. Stand tall on both feet.';
+  await say(`Tuck the phone into your waistband on your ${S.foot==='R'?'left':'right'} hip, then stand tall on both feet.`);
   await countdown(5, 'Hold still');
   if (stopReq) return false;
   const buf = []; rec = {t0:performance.now(), samples:buf, mode:'cal'};
   await sleep(3000); rec = null;
   if (buf.length < 30){ $('liveStatus').textContent='Not enough sensor data.'; await say('Not enough sensor data.'); return false; }
   u0 = meanVec(buf.map(s=>s.u));
-  if (Math.abs(u0[1]) < 0.7 && !demo){ await say('Check the phone is upright along your thigh.'); }
+  if (Math.abs(u0[1]) < 0.7 && !demo){ await say('Check the phone is upright in your waistband, top pointing up.'); }
   return true;
 }
 async function runSet(){
@@ -413,22 +467,30 @@ async function runSet(){
   show('live'); initAudio(); await keepAwake(true);
   if (!await requestSensors()){ show('setup'); running=false; return; }
   if (demo) demoIdle();
+  if (S.mode === 'smartkick' && !demo){
+    $('liveStatus').textContent = 'Smart footy pairing is not in this prototype yet. Scoring balance only.';
+    await say('Smart footy pairing is not in this prototype yet. Your balance will still be scored.');
+  }
   if (!await calibrate()){ finish(); return; }
   const mode = S.mode, level = S.level;
   for (let i=1; i<=S.reps && !stopReq; i++){
     $('liveStatus').textContent = `Rep ${i} of ${S.reps}`;
-    const instr = mode==='statue' ? 'Get ready to lift.' : mode==='plant' ? 'Get ready to step and plant.' : 'Get ready for your approach.';
-    await say(`Rep ${i}. ${instr}`);
-    await countdown(3, mode==='statue' ? 'Lift' : 'Go');
+    const M = MODES[mode];
+    if (i === 1 && S.guide) await say(M.intro);
+    await say(`Rep ${i}. ${S.guide ? M.cue : M.short}`);
+    $('liveTip').textContent = M.hold;
+    await countdown(3, M.go);
     if (stopReq) break;
-    say(mode==='statue' ? 'Lift' : 'Go');
+    say(M.go);
     const r = await recordRep(mode, level);
     const res = analyse(r.samples, mode, level, r.lostAt);
-    res.samples = r.samples; res.n = i; setResults.push(res);
+    res.samples = r.samples; res.n = i;
+    if (mode === 'smartkick') attachBall(res);
+    setResults.push(res);
     const cue = cueFor(res); $('liveStatus').textContent = cue;
     $('liveBig').textContent = res.error ? '!' : Math.round(res.score);
     await say((res.error ? '' : `Score ${Math.round(res.score)}. `) + cue);
-    if (i < S.reps) { $('liveBig').textContent='Rest'; await sleep(3000); }
+    if (i < S.reps) { $('liveBig').textContent='Rest'; $('liveTip').textContent = mode.includes('kick') && mode!=='shadow' ? 'Grab your footy and walk back to your start spot' : ''; await sleep(mode.includes('kick') && mode!=='shadow' ? 8000 : 3000); }
   }
   finish();
 }
@@ -464,19 +526,43 @@ function renderProgress(){
   $('progress').innerHTML = `Level ${S.level} progress: <b>${p}</b> passes in last ${h.length} of 10 reps (8 needed to unlock).<div class="bar"><i style="width:${p*10}%"></i></div>`;
 }
 
+// ---------- Smart footy (simulated until ball pairing exists) ----------
+function attachBall(res){
+  if (!demo || res.error){ res.ball = null; return; }
+  const contactT = res.plantT + 0.22;
+  const near = res.samples.filter(s => Math.abs(s.t - contactT) <= 0.05);
+  const contactWobble = near.length ? near.reduce((a,s)=>a+s.rr,0)/near.length : null;
+  const v = (res.lost ? 40 : res.score) + (Math.random()-0.5)*20;
+  res.ball = {contactT, contactWobble, rating: v > 85 ? 'Good' : v > 70 ? 'Okay' : 'Bad'};
+}
+function ballSummary(){
+  const rated = setResults.filter(r => r.ball);
+  if (!rated.length) return '<b>Smart footy not connected.</b> Kick ratings and balance at contact will show here once the ball is paired. Tap "Try with fake sensors" to preview.';
+  const good = rated.filter(r => r.ball.rating==='Good'), other = rated.filter(r => r.ball.rating!=='Good');
+  const avg = (arr,f) => arr.reduce((a,r)=>a+f(r),0)/arr.length;
+  let t = `<b>Kicks:</b> ${good.length} good, ${rated.filter(r=>r.ball.rating==='Okay').length} okay, ${rated.filter(r=>r.ball.rating==='Bad').length} bad.`;
+  if (good.length && other.length){
+    t += ` Your good kicks averaged a balance score of <b>${Math.round(avg(good,r=>r.score))}</b> vs <b>${Math.round(avg(other,r=>r.score))}</b> for the rest.` +
+         ` Hip wobble at contact: ${Math.round(avg(good,r=>r.ball.contactWobble||0))} vs ${Math.round(avg(other,r=>r.ball.contactWobble||0))}°/s.`;
+  } else t += ' Kick a few more to compare your good and bad kicks.';
+  return t + (demo ? ' <i>(Simulated ball data.)</i>' : '');
+}
+
 // ---------- Results UI ----------
 function fmt(v, d=1){ return v==null || isNaN(v) ? '-' : v.toFixed(d); }
 function renderResults(unlocked){
-  $('resMode').textContent = `${({statue:'Statue',plant:'Plant & Hold',shadow:'Shadow Kick'})[setResults[0].mode]} · Level ${setResults[0].level}`;
+  $('resMode').textContent = `${MODES[setResults[0].mode].name} · Level ${setResults[0].level}`;
   const um = $('unlockMsg'); um.classList.toggle('hidden', !unlocked); if (unlocked){ um.textContent = unlocked; say(unlocked); }
-  const statue = setResults[0].mode==='statue';
-  let h = `<tr><th>Rep</th><th>Score</th><th>Tilt&nbsp;&deg;</th><th>Wobble</th>${statue?'<th>Held s</th>':'<th>Settle ms</th><th>Collapse&nbsp;&deg;</th>'}<th></th></tr>`;
+  const statue = setResults[0].mode==='statue', smart = setResults[0].mode==='smartkick';
+  let h = `<tr><th>Rep</th><th>Score</th><th>Tilt&nbsp;&deg;</th><th>Wobble</th>${statue?'<th>Held s</th>':'<th>Settle ms</th><th>Hip dip&nbsp;&deg;</th>'}${smart?'<th>Kick</th>':''}<th></th></tr>`;
   setResults.forEach((r,i) => {
     const res = r.error ? '<span class="fail">No plant</span>' : r.lost ? '<span class="fail">Lost</span>' : r.pass ? '<span class="pass">Pass</span>' : '<span class="fail">Miss</span>';
     h += `<tr data-i="${i}" class="${i===selRep?'sel':''}"><td>${r.n}</td><td><b>${r.error?'-':Math.round(r.score)}</b></td><td>${fmt(r.tilt)}</td><td>${fmt(r.wobble,0)}</td>` +
-         (statue ? `<td>${fmt(r.held)}</td>` : `<td>${r.settle==null?'-':Math.round(r.settle)}${r.neverSettled?'+':''}</td><td>${fmt(r.collapse)}</td>`) + `<td>${res}</td></tr>`;
+         (statue ? `<td>${fmt(r.held)}</td>` : `<td>${r.settle==null?'-':Math.round(r.settle)}${r.neverSettled?'+':''}</td><td>${fmt(r.collapse)}</td>`) +
+         (smart ? `<td>${r.ball ? `<span class="${r.ball.rating==='Good'?'pass':r.ball.rating==='Bad'?'fail':''}">${r.ball.rating}</span>` : '-'}</td>` : '') + `<td>${res}</td></tr>`;
   });
   $('repTable').innerHTML = h;
+  $('ballSummary').innerHTML = smart ? ballSummary() : '';
   $('repTable').querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => { selRep = +tr.dataset.i; renderResults(null); });
   renderPlot(setResults[selRep] || setResults[0]);
 }
@@ -497,10 +583,11 @@ function renderPlot(r){
   const vline = (t,col,dash) => { if (t==null) return; x.setLineDash(dash?[10,8]:[]); x.beginPath(); x.moveTo(X(t),pad*0.6); x.lineTo(X(t),H-pad); x.strokeStyle=col; x.lineWidth=3; x.stroke(); x.setLineDash([]); };
   vline(r.plantT, '#2fbf71', false); if (!r.neverSettled) vline(r.settledT, '#2fbf71', true);
   vline(r.lostAt, '#ef5b5b', false);
+  if (r.ball) vline(r.ball.contactT, '#4aa3ff', true);
   const z = k => r[k]==null ? '' : ` (${zoneOf(r[k], ZONES[k])})`;
   $('repDetail').innerHTML = r.error ? r.error :
     `Score <b>${Math.round(r.score)}</b>. Tilt sway ${fmt(r.tilt)}°${z('tilt')}, wobble ${fmt(r.wobble,0)}°/s${z('wobble')}` +
-    (r.mode==='statue' ? `, held ${fmt(r.held)} s.` : `, settle ${Math.round(r.settle)} ms${r.neverSettled?' (never settled)':''}${z('settle')}, collapse ${fmt(r.collapse)}°${z('collapse')}.`) +
+    (r.mode==='statue' ? `, held ${fmt(r.held)} s.` : `, settle ${Math.round(r.settle)} ms${r.neverSettled?' (never settled)':''}${z('settle')}, hip dip ${fmt(r.collapse)}°${z('collapse')}.`) +
     ` Samples: ${s.length} (${Math.round(s.length/tMax)} Hz). Cue: "${cueFor(r)}"`;
 }
 function repCSV(r){
@@ -514,8 +601,8 @@ async function fitCheck(){
   show('live'); initAudio(); stopReq=false;
   if (!await requestSensors()){ show('setup'); return; }
   if (demo) demoIdle();
-  $('liveStatus').textContent = 'Strap the phone on, then tap it firmly twice.'; $('liveBig').textContent='Tap x2';
-  await say('Strap the phone on, then tap it firmly twice.');
+  $('liveStatus').textContent = 'Tuck the phone into your waistband, then tap it firmly twice.'; $('liveBig').textContent='Tap x2';
+  await say('Tuck the phone into your waistband, then tap it firmly twice.');
   const buf=[]; rec={t0:performance.now(), samples:buf, mode:'fit'};
   if (demo){ setTimeout(()=>{ for(let k=0;k<30;k++) setTimeout(()=>ingest(performance.now(), [0,1,0], 5, k<2?1.6:(k<14?0.4*Math.exp(-k/5):0.02)),k*10); }, 800); }
   await sleep(4000); rec=null;
@@ -533,14 +620,292 @@ async function fitCheck(){
   showWarn('Fit check: ' + msg);
 }
 
+// ---------- Mode content (plain-English explanations) ----------
+const MODES = {
+  statue: {
+    name:'Statue', level:1, tag:'Build a rock-solid base',
+    what:'Balance on your plant leg with your kicking leg pulled back, like the split second before you kick. It teaches your plant leg to hold you still.',
+    steps:['Stand tall on both feet','On "Lift", pull your kicking leg back, knee bent, arms out for balance','Hold still until the double beep. Keep the dot inside the green ring','Put your foot down and relax'],
+    measures:['Tilt: how much your hips lean around','Wobble: how fast your hips shake'],
+    mistakes:['Leaning your whole body sideways to stay up','Shuffling or hopping on your plant foot','Letting your kicking foot touch the ground'],
+    tip:'Pick a spot straight ahead at eye level and stare at it. Your balance follows your eyes.',
+    intro:'Statue. Stand tall on both feet. When you hear Lift, pull your kicking leg back with your knee bent and arms out, then hold still until the double beep.',
+    cue:'Get ready to lift your kicking leg back and hold.', short:'Get ready to lift.', go:'Lift',
+    hold:'Hold still: keep the dot inside the green ring'
+  },
+  plant: {
+    name:'Plant & Hold', level:2, tag:'Land a firm plant, then freeze',
+    what:'Take one step onto your plant leg as if you are about to kick, swing your kicking leg through, then freeze. It trains your plant leg to lock in fast instead of wobbling or sinking.',
+    steps:['Stand one big step behind your spot','On "Go", step forward and land firmly on your plant leg','Swing your kicking leg through like you just kicked','Freeze in that finish position until the double beep'],
+    measures:['Settle: how quickly you lock in after landing','Hip dip: whether your hips sink after landing','Tilt and wobble while you hold the finish'],
+    mistakes:['A soft knee that keeps sinking after you land','A step that is too long, so you over-reach','Putting your kicking foot down before the beep'],
+    tip:'Land on your whole foot with your plant foot pointing at your target.',
+    intro:'Plant and Hold. Stand one big step back. When you hear Go, step onto your plant leg, swing your kicking leg through, and freeze until the double beep.',
+    cue:'Get ready: one step, plant, swing through, and freeze.', short:'Get ready to step and plant.', go:'Go',
+    hold:'Step, plant, swing through, then freeze'
+  },
+  shadow: {
+    name:'Shadow Kick', level:3, tag:'The full kick, no ball needed',
+    what:'Run in and kick an imaginary ball, then hold your finish. This is the real kicking action, and the other modes build up to it.',
+    steps:['Start three steps back from your spot','On "Go", take three steps in and plant','Kick through an imaginary ball dropped at knee height','Hold your finish on the plant leg until the double beep'],
+    measures:['All four: settle, hip dip, tilt and wobble'],
+    mistakes:['Rushing the run-in so the plant is out of control','Falling away to the side after the kick','Letting the kicking leg drag you off balance'],
+    tip:'Start with a walking run-in. Speed up only once your scores are passing.',
+    intro:'Shadow Kick. Start three steps back. When you hear Go, take three steps, plant, kick an imaginary ball, and hold your finish until the double beep.',
+    cue:'Get ready: three steps, plant, kick, and hold your finish.', short:'Get ready for your approach.', go:'Go',
+    hold:'Three steps, plant, kick, hold the finish'
+  },
+  realkick: {
+    name:'Real Kick', level:3, tag:'Kick a real footy, any ball',
+    what:'Your full kick with any footy, then hold your finish. The phone scores your plant leg. It can\'t see the ball, so watch where your kicks go too.',
+    steps:['Start three steps back, holding the footy','Take three steps in, then plant','Drop the ball onto your foot and kick through','Hold your finish on the plant leg until the double beep'],
+    measures:['Settle, hip dip, tilt and wobble, same as Shadow Kick','Not ball flight: the phone only measures your balance'],
+    mistakes:['Turning to watch the ball instead of holding your finish','Dropping the ball off line, so you reach for it','Planting too close to or too far from where the ball drops'],
+    tip:'Kick into a net, against a wall, or to a partner so you are not chasing the ball. You get 8 seconds between reps to collect it.',
+    intro:'Real Kick. Start three steps back holding your footy. When you hear Go, take three steps, plant, drop and kick, then hold your finish until the double beep.',
+    cue:'Get ready: three steps, plant, drop, kick, and hold.', short:'Get ready to kick.', go:'Go',
+    hold:'Three steps, plant, drop, kick, hold the finish'
+  },
+  smartkick: {
+    name:'Smart Footy Kick', level:3, tag:'Balance plus kick data from the smart ball',
+    what:'Same as Real Kick, but with the NXTPlay smart footy. The ball records the exact moment of contact and rates the kick, so you can see how your balance affects your kicking.',
+    steps:['Turn on your smart footy and start three steps back','Take three steps in, then plant','Drop and kick: the ball records contact and rates the kick','Hold your finish, then hear your balance score and kick rating'],
+    measures:['Your balance at the exact moment the ball is struck','Kick rating from the ball: good, okay or bad','How your balance compares between good and bad kicks'],
+    mistakes:['Turning to watch the ball instead of holding your finish','Dropping the ball off line, so you reach for it','Kicking out of Bluetooth range of your phone'],
+    tip:'Prototype note: ball pairing isn\'t built yet. Use "Try with fake sensors" to see how smart footy results will look.',
+    intro:'Smart Footy Kick. Start three steps back holding your smart footy. When you hear Go, take three steps, plant, drop and kick, then hold your finish until the double beep.',
+    cue:'Get ready: three steps, plant, drop, kick, and hold.', short:'Get ready to kick.', go:'Go',
+    hold:'Three steps, plant, drop, kick, hold the finish'
+  }
+};
+
+// ---------- Stick-figure demo engine ----------
+const FIG = {T:46, S:46, TOR:58, UA:30, FA:28, HEAD:11, G:207, X0:190};
+const POSE_KEYS = ['x','hy','pH','pK','kH','kK','lean','aP','aK','ball','wob','bx','by','bo','smart','flash'];
+const STAND = {x:0, g:'both', pH:0, pK:0, kH:0, kK:0, lean:2, aP:8, aK:-8, ball:0, wob:0, bx:0, by:0, bo:0, smart:0, flash:0};
+const P = o => ({...STAND, ...o});
+function legH(h,k){ return FIG.T*Math.cos(h*D) + FIG.S*Math.cos((h-k)*D); }
+function withHip(p){ const hp=legH(p.pH,p.pK), hk=legH(p.kH,p.kK);
+  return {...p, hy: FIG.G - 3 - (p.g==='P'?hp : p.g==='K'?hk : Math.max(hp,hk))}; }
+function legPts(hx,hy,h,k){
+  const kx=hx+Math.sin(h*D)*FIG.T, ky=hy+Math.cos(h*D)*FIG.T, s=(h-k)*D;
+  const ax=kx+Math.sin(s)*FIG.S, ay=ky+Math.cos(s)*FIG.S;
+  return {kx,ky,ax,ay,tx:ax+Math.cos(s)*13,ty:ay-Math.sin(s)*13};
+}
+function figureSVG(p, time=0, opts={}){
+  const wob = p.wob ? p.wob*Math.sin(time*2.6) : 0;
+  const hx = FIG.X0 + p.x, hy = p.hy, lean = (p.lean + wob)*D;
+  const sx = hx + Math.sin(lean)*FIG.TOR, sy = hy - Math.cos(lean)*FIG.TOR;
+  const kl = legPts(hx,hy,p.kH,p.kK), pl = legPts(hx,hy,p.pH,p.pK);
+  const arm = a => { const r=a*D, ex=sx+Math.sin(r)*FIG.UA, ey=sy+Math.cos(r)*FIG.UA, f=(a+25)*D;
+    return `${sx},${sy} ${ex},${ey} ${ex+Math.sin(f)*FIG.FA},${ey+Math.cos(f)*FIG.FA}`; };
+  const line = (pts, col, w, op=1) => `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" opacity="${op}"/>`;
+  const phx = hx + Math.sin(lean)*8, phy = hy - Math.cos(lean)*8; // phone tucked in waistband at the plant-leg hip
+  let s = '';
+  if (p.ball > 0.02){
+    s += `<g opacity="${Math.min(1,p.ball)}"><ellipse cx="256" cy="168" rx="13" ry="8.5" transform="rotate(-25 256 168)" fill="rgba(242,182,50,.15)" stroke="#f2b632" stroke-width="2" stroke-dasharray="4 3"/>` +
+         (opts.thumb ? '' : `<text x="256" y="148" text-anchor="middle" font-size="11" fill="#f2b632">imaginary ball</text>`) + `</g>`;
+  }
+  s += line(`${hx},${hy} ${kl.kx},${kl.ky} ${kl.ax},${kl.ay} ${kl.tx},${kl.ty}`, '#cfd8e3', 7, 0.55);
+  s += line(arm(p.aK + wob*3), '#cfd8e3', 5, 0.55);
+  s += line(`${hx},${hy} ${sx},${sy}`, '#cfd8e3', 8);
+  s += `<circle cx="${sx+Math.sin(lean)*(FIG.HEAD+5)}" cy="${sy-Math.cos(lean)*(FIG.HEAD+5)}" r="${FIG.HEAD}" fill="#cfd8e3"/>`;
+  s += line(`${hx},${hy} ${pl.kx},${pl.ky} ${pl.ax},${pl.ay} ${pl.tx},${pl.ty}`, '#2fbf71', 7.5);
+  s += `<rect x="${phx-4.5}" y="${phy-9}" width="9" height="18" rx="2" fill="#4aa3ff" stroke="#0f1720" stroke-width="1.5" transform="rotate(${(p.lean+wob)} ${phx} ${phy})"/>`;
+  s += line(arm(p.aP - wob*3), '#cfd8e3', 5);
+  if (p.bo > 0.02){
+    const sc = p.smart > 0.5;
+    s += `<g opacity="${Math.min(1,p.bo)}"><ellipse cx="${p.bx}" cy="${p.by}" rx="13" ry="8.5" transform="rotate(-25 ${p.bx} ${p.by})" fill="#b5542f" stroke="${sc?'#4aa3ff':'#e9d9c8'}" stroke-width="${sc?3:1.5}"/>` +
+         `<line x1="${p.bx-5}" y1="${p.by+1}" x2="${p.bx+5}" y2="${p.by-4}" stroke="#fff" stroke-width="1.5"/></g>`;
+    if (sc && p.bx < 300 && !opts.thumb && !(p.flash > 0.3)) s += `<text x="${p.bx}" y="${p.by-16}" text-anchor="middle" font-size="10.5" fill="#4aa3ff" opacity="${Math.min(1,p.bo)}">smart footy</text>`;
+  }
+  if (p.flash > 0.05 && !opts.thumb) s += `<text x="256" y="138" text-anchor="middle" font-size="13" font-weight="700" fill="#4aa3ff" opacity="${p.flash}">Contact detected</text>`;
+  if (opts.callout){
+    s += `<circle cx="${phx}" cy="${phy}" r="17" fill="none" stroke="#4aa3ff" stroke-width="2"/>` +
+         `<line x1="${phx-16}" y1="${phy-4}" x2="150" y2="96" stroke="#4aa3ff" stroke-width="1.5"/>` +
+         `<text x="146" y="92" text-anchor="end" font-size="12" fill="#4aa3ff" font-weight="600">Phone here</text>` +
+         `<text x="146" y="107" text-anchor="end" font-size="11" fill="#9aabbd">tucked in waistband</text>` +
+         `<text x="146" y="121" text-anchor="end" font-size="11" fill="#9aabbd">on plant-leg hip</text>`;
+  }
+  return s;
+}
+// key poses
+const LOADED = P({g:'P', pH:4, pK:12, kH:-28, kK:85, lean:6, aP:60, aK:-35});
+const STRIDE_A = x => P({x, g:'P', pH:-12, pK:5, kH:22, kK:25, lean:8, aP:-25, aK:25});
+const STRIDE_B = x => P({x, g:'K', pH:22, pK:25, kH:-12, kK:5, lean:8, aP:25, aK:-25});
+const FINISH = P({x:0, g:'P', pH:0, pK:8, kH:85, kK:0, lean:-14, aP:35, aK:-60});
+function kickFrames(smart){
+  const H = {aP:40, aK:40, bo:1, smart};
+  return [
+    {t:0, p:P({x:-150, ...H}), c:0, hold:1}, {t:1.4, p:P({x:-150, ...H}), c:0, hold:1},
+    {t:1.9, p:{...STRIDE_B(-125), ...H}, c:1, hold:1}, {t:2.4, p:{...STRIDE_A(-92), ...H}, c:1, hold:1}, {t:2.9, p:{...STRIDE_B(-58), ...H}, c:1, hold:1},
+    {t:3.4, p:P({x:-10, g:'P', pH:14, pK:18, kH:-38, kK:90, lean:10, aP:45, aK:45, ...H}), c:2, hold:1},
+    {t:3.65, p:P({x:-6, g:'P', pH:10, pK:14, kH:-10, kK:60, lean:6, aP:50, aK:-20, bx:250, by:150, bo:1, smart}), c:2},
+    {t:3.85, p:P({x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45, bx:256, by:168, bo:1, smart, flash:smart}), c:2},
+    {t:4.35, p:{...FINISH, bx:340, by:60, bo:1, smart, flash:smart}, c:3},
+    {t:4.9, p:{...FINISH, wob:1, bx:420, by:0, bo:0, smart}, c:3},
+    {t:7.8, p:{...FINISH, wob:1}, c:3}, {t:8.6, p:STAND, c:3}, {t:9.6, p:STAND, c:3}
+  ];
+}
+const DEMOS = {
+  statue: [
+    {t:0, p:STAND, c:0}, {t:1.8, p:STAND, c:0},
+    {t:2.6, p:LOADED, c:1}, {t:3.4, p:{...LOADED, wob:1.4}, c:2},
+    {t:7.6, p:{...LOADED, wob:1.4}, c:2}, {t:8.4, p:STAND, c:3}, {t:9.8, p:STAND, c:3}
+  ],
+  plant: [
+    {t:0, p:P({x:-70}), c:0}, {t:1.6, p:P({x:-70}), c:0},
+    {t:2.3, p:P({x:-40, g:'K', pH:28, pK:8, kH:-12, kK:10, lean:6, aP:-20, aK:25}), c:1},
+    {t:2.9, p:P({x:-5, g:'P', pH:14, pK:18, kH:-30, kK:75, lean:8, aP:50, aK:-30}), c:1},
+    {t:3.5, p:FINISH, c:2}, {t:4.1, p:{...FINISH, wob:1}, c:3},
+    {t:7.6, p:{...FINISH, wob:1}, c:3}, {t:8.4, p:STAND, c:3}, {t:9.4, p:STAND, c:3}
+  ],
+  shadow: [
+    {t:0, p:P({x:-150}), c:0}, {t:1.4, p:P({x:-150}), c:0},
+    {t:1.9, p:STRIDE_B(-125), c:1}, {t:2.4, p:STRIDE_A(-92), c:1}, {t:2.9, p:STRIDE_B(-58), c:1},
+    {t:3.5, p:P({x:-10, g:'P', pH:14, pK:18, kH:-38, kK:90, lean:10, aP:55, aK:-35, ball:1}), c:2},
+    {t:3.85, p:P({x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45, ball:1}), c:2},
+    {t:4.35, p:FINISH, c:3}, {t:4.9, p:{...FINISH, wob:1}, c:3},
+    {t:7.8, p:{...FINISH, wob:1}, c:3}, {t:8.6, p:STAND, c:3}, {t:9.6, p:STAND, c:3}
+  ],
+  realkick: kickFrames(0),
+  smartkick: kickFrames(1),
+  intro: [
+    {t:0, p:STAND, c:0}, {t:1.6, p:STAND, c:0}, {t:2.4, p:LOADED, c:1},
+    {t:3.0, p:{...LOADED, wob:1}, c:1}, {t:6.0, p:{...LOADED, wob:1}, c:1}, {t:6.8, p:STAND, c:0}, {t:7.6, p:STAND, c:0}
+  ]
+};
+Object.values(DEMOS).forEach(fr => fr.forEach(f => { f.p = withHip(f.p); if (f.hold){ f.p.bx = FIG.X0 + f.p.x + 44; f.p.by = f.p.hy - 20; } }));
+function poseAt(frames, t){
+  const end = frames[frames.length-1].t; t = t % end;
+  let i = 0; while (i < frames.length-2 && frames[i+1].t <= t) i++;
+  const a = frames[i], b = frames[i+1], u = Math.max(0, Math.min(1, (t-a.t)/(b.t-a.t))), e = u*u*(3-2*u);
+  const p = {}; POSE_KEYS.forEach(k => p[k] = a.p[k] + (b.p[k]-a.p[k])*e);
+  return {p, c:a.c};
+}
+const STAGE = '<line x1="10" y1="207" x2="310" y2="207" stroke="#2a3746" stroke-width="2"/>';
+function staticFigure(p, viewBox='0 0 320 230', opts){ return `<svg viewBox="${viewBox}" class="demo-svg">${STAGE}${figureSVG(withHip(p),0,opts)}</svg>`; }
+// Animated player. captions: array of strings; stepsEl: optional <ol> to highlight in sync
+function makePlayer(el, frames, captions, stepsEl){
+  el.innerHTML = `<svg viewBox="0 0 320 230" class="demo-svg" role="img" aria-label="Animated demo">${STAGE}<g class="fig"></g></svg>
+    <div class="demo-cap"></div>
+    <div class="demo-ctrl"><button class="btn ghost small" data-act="pause">Pause</button><button class="btn ghost small" data-act="restart">Replay</button></div>
+    <div class="legend"><b>Green leg</b> = your plant leg (the one you stand on) · <em>Blue</em> = your phone</div>`;
+  const g = el.querySelector('.fig'), cap = el.querySelector('.demo-cap');
+  let t0 = performance.now(), paused = false, pausedT = 0, lastC = -1;
+  el.querySelector('[data-act=pause]').onclick = e => { paused = !paused; e.target.textContent = paused ? 'Play' : 'Pause';
+    if (paused) pausedT = (performance.now()-t0)/1000; else t0 = performance.now() - pausedT*1000; };
+  el.querySelector('[data-act=restart]').onclick = () => { t0 = performance.now(); paused = false; el.querySelector('[data-act=pause]').textContent='Pause'; };
+  (function loop(){
+    if (!el.isConnected || !el.contains(g)) return;
+    const t = paused ? pausedT : (performance.now()-t0)/1000;
+    const {p, c} = poseAt(frames, t);
+    g.innerHTML = figureSVG(p, t);
+    if (c !== lastC){ lastC = c; cap.innerHTML = captions.length > 1 ? `<span>Step ${c+1}:</span> ${captions[c]}` : captions[0];
+      if (stepsEl) stepsEl.querySelectorAll('li').forEach((li,i) => li.classList.toggle('now', i===c)); }
+    requestAnimationFrame(loop);
+  })();
+}
+
+// ---------- Mode cards ----------
+const CONTACT = {x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45};
+const THUMB = {statue: LOADED, plant: FINISH, shadow: P({...CONTACT, ball:1}), realkick: P({...CONTACT, bx:256, by:168, bo:1}), smartkick: P({...CONTACT, bx:256, by:168, bo:1, smart:1})};
+function renderModes(){
+  const wrap = $('modeCards');
+  wrap.innerHTML = Object.entries(MODES).map(([k,m]) => {
+    const on = S.mode === k;
+    const body = on ? `<div class="mode-body">
+        <p style="font-size:15px;line-height:1.5;margin:0 0 12px">${m.what}</p>
+        <div class="player"></div>
+        <h3>How to do it</h3><ol class="steps">${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol>
+        <h3>What the app measures</h3><ul class="plain">${m.measures.map(s=>`<li>${s}</li>`).join('')}</ul>
+        <h3>Common mistakes</h3><ul class="plain">${m.mistakes.map(s=>`<li>${s}</li>`).join('')}</ul>
+        <div class="tip"><b>Tip:</b> ${m.tip}</div>
+      </div>` : '';
+    return `<div class="mode-card ${on?'on':''}" data-mode="${k}">
+      <div class="mode-head">${staticFigure(THUMB[k], '90 50 220 165', {thumb:true})}
+        <div><b>${m.name}</b><span class="badge">Level ${m.level}+</span><div class="note" style="font-size:14px">${m.tag}</div>
+        ${on ? '' : '<div class="note">Tap to see how it works</div>'}</div></div>${body}</div>`;
+  }).join('');
+  wrap.querySelectorAll('.mode-card').forEach(c => c.addEventListener('click', e => {
+    if (c.dataset.mode === S.mode) return; S.mode = c.dataset.mode; renderModes(); syncSeg();
+    c.scrollIntoView && setTimeout(()=>wrap.querySelector('.mode-card.on').scrollIntoView({behavior:'smooth', block:'start'}), 30);
+  }));
+  const on = wrap.querySelector('.mode-card.on');
+  makePlayer(on.querySelector('.player'), DEMOS[S.mode], MODES[S.mode].steps, on.querySelector('ol.steps'));
+}
+
+// ---------- First-time walkthrough ----------
+let onbI = 0;
+const ONB = [
+  () => `<h2>Welcome to Plant Leg Balance</h2>
+    <p>When you kick, one leg swings and the other leg holds you up. The one holding you up is your <b style="color:var(--acc)">plant leg</b>.</p>
+    <div class="player"></div>
+    <p>A steady plant leg means cleaner, more accurate kicks. This game trains it, and you don't need a ball.</p>`,
+  () => `<h2>Tuck your phone into your waistband</h2>
+    <p>Your plant leg is your <b style="color:var(--acc)">${S.foot==='R'?'left':'right'} leg</b> (you kick with your ${S.foot==='R'?'right':'left'}), so the phone goes on your <b>${S.foot==='R'?'left':'right'} hip</b>. You can change your kicking foot on the setup screen.</p>
+    ${staticFigure(STAND, '0 0 320 230', {callout:true})}
+    <ul class="plain" style="margin-top:10px">
+      <li>Tuck it into your waistband on the side of your plant-leg hip</li>
+      <li>Screen facing out, top of the phone pointing up</li>
+      <li>A firm waistband or compression shorts work best. A loose one lets the phone bounce</li>
+      <li>Use "Check phone fit" to test it before you start</li>
+    </ul>`,
+  () => `<h2>Listen, don't look</h2>
+    <p>Your phone is on your leg, so the game talks to you. Turn the volume up.</p>
+    <ul class="plain">
+      <li><b>3 short beeps</b>: get ready</li>
+      <li><b>High beep + "Lift" or "Go"</b>: start the move</li>
+      <li><b>Double beep</b>: rep finished, relax</li>
+      <li><b>Low buzz</b>: balance lost, reset and go again</li>
+      <li>After each rep you hear your <b>score</b> and <b>one tip</b></li>
+    </ul>
+    <button class="btn ghost small" id="hearBtn">Hear the sounds</button>`,
+  () => `<h2>Five modes, easy to hard</h2>
+    <ol class="steps">
+      <li><b>Statue</b>: balance on your plant leg and hold still</li>
+      <li><b>Plant &amp; Hold</b>: step into a firm plant and freeze</li>
+      <li><b>Shadow Kick</b>: run in, kick an imaginary ball, hold your finish</li>
+      <li><b>Real Kick</b>: the same with any footy</li>
+      <li><b>Smart Footy Kick</b>: kick the NXTPlay smart footy and see how your balance affects each kick</li>
+    </ol>
+    <p>Pass 8 of your last 10 reps and the next level unlocks automatically. Each mode has a demo you can watch before you start.</p>
+    <p><b>New? Start with Statue.</b></p>`
+];
+function openOnb(i=0){ onbI = i; $('onb').classList.remove('hidden'); renderOnb(); }
+function closeOnb(){ $('onb').classList.add('hidden'); $('onbBody').innerHTML=''; try{ localStorage.setItem('nxtplay-plb-onb','1'); }catch(e){} show('setup'); }
+function renderOnb(){
+  $('onbBody').innerHTML = ONB[onbI]();
+  $('onbDots').innerHTML = ONB.map((_,i)=>`<i class="${i===onbI?'on':''}"></i>`).join('');
+  $('onbBack').style.visibility = onbI ? 'visible' : 'hidden';
+  $('onbNext').textContent = onbI === ONB.length-1 ? "Let's go" : 'Next';
+  const pl = $('onbBody').querySelector('.player');
+  if (pl) makePlayer(pl, DEMOS.intro, ['Standing on both feet', 'Kicking leg back: now the green plant leg holds you up']);
+  const hb = $('hearBtn');
+  if (hb) hb.onclick = async () => { initAudio(); hb.disabled = true;
+    for (let i=0;i<3;i++){ beep(660,120); await sleep(1000); } beep(990,300); buzz(200); say('Lift'); await sleep(2500);
+    beep(1200,150); await sleep(80); beep(1200,150); await sleep(600);
+    beep(220,400); await sleep(700); await say('Score 85. Elite rep. Rock-solid plant leg.'); hb.disabled = false; };
+}
+$('onbNext').onclick = () => { if (onbI < ONB.length-1){ onbI++; renderOnb(); } else closeOnb(); };
+$('onbBack').onclick = () => { if (onbI > 0){ onbI--; renderOnb(); } };
+$('onbSkip').onclick = closeOnb;
+$('howBtn').onclick = () => openOnb(0);
+$('phoneBtn').onclick = () => openOnb(1);
+
 // ---------- UI wiring ----------
-function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); } }
+function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); } if (id==='live') $('liveTip').textContent=''; }
 function syncSeg(){
   document.querySelectorAll('.seg').forEach(seg => { const k=seg.dataset.key;
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[k])===b.dataset.v)); });
   const L = LEVELS[S.level];
-  $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '. Plant modes unlock at Level 2 in the full game (all open here for testing).');
+  $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '.') + ' In the full game each mode unlocks at its level; all modes are open here for testing.';
+  const plantSide = S.foot==='R' ? 'left' : 'right';
+  $('plantNote').textContent = `Your plant leg is your ${plantSide} leg, so tuck the phone into your waistband on your ${plantSide} hip.`;
+  $('startBtn').textContent = `Start ${MODES[S.mode].name}`;
+  $('guideChk').checked = S.guide;
 }
+$('guideChk').onchange = e => { S.guide = e.target.checked; };
 document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return; const k = seg.dataset.key;
   S[k] = ['level','reps'].includes(k) ? +b.dataset.v : b.dataset.v; syncSeg(); renderProgress();
@@ -560,6 +925,8 @@ $('dlBtn').onclick = () => {
 };
 try { const lv = +localStorage.getItem('nxtplay-plb-level'); if (lv>=1 && lv<=5) S.level = lv; } catch(e){}
 show('setup');
+let seenOnb = false; try { seenOnb = !!localStorage.getItem('nxtplay-plb-onb'); } catch(e){}
+if (!seenOnb) openOnb(0);
 </script>
 </body>
 </html>
