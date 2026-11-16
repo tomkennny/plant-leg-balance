@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NXTPlay Plant Leg Balance: Prototype</title>
+<style>
+  :root{--bg:#0f1720;--card:#18222e;--line:#2a3746;--ink:#eef3f8;--quiet:#9aabbd;--acc:#2fbf71;--warn:#f2b632;--bad:#ef5b5b;--blue:#4aa3ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);
+       padding:calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));max-width:560px;margin-inline:auto}
+  h1{font-size:20px;margin:0 0 4px} h2{font-size:16px;margin:0 0 10px}
+  .sub{color:var(--quiet);font-size:13px;margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:13px;color:var(--quiet);margin:10px 0 6px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1 1 auto;min-width:64px;padding:10px 8px;border-radius:8px;border:1px solid var(--line);background:#111b25;color:var(--ink);font-size:14px}
+  .seg button.on{border-color:var(--acc);background:rgba(47,191,113,.15);font-weight:600}
+  .btn{width:100%;padding:14px;border-radius:10px;border:0;background:var(--acc);color:#04130b;font-size:17px;font-weight:700;margin-top:8px}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:500}
+  .btn.small{padding:10px;font-size:14px}
+  .row{display:flex;gap:8px}
+  .hidden{display:none!important}
+  .big{font-size:56px;font-weight:700;text-align:center;margin:6px 0}
+  .status{text-align:center;font-size:18px;min-height:26px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .stat{background:#111b25;border-radius:8px;padding:8px;text-align:center}
+  .stat b{display:block;font-size:20px} .stat span{font-size:11px;color:var(--quiet)}
+  canvas{width:100%;display:block}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:center}
+  th{color:var(--quiet);font-weight:500}
+  tr.sel td{background:rgba(74,163,255,.12)}
+  .pass{color:var(--acc);font-weight:600} .fail{color:var(--bad);font-weight:600}
+  .note{font-size:12px;color:var(--quiet);line-height:1.45}
+  .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line)}
+  .bar{height:10px;background:#111b25;border-radius:99px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--acc)}
+  .warnbox{border-color:var(--warn);color:var(--warn);font-size:13px}
+</style>
+</head>
+<body>
+
+<h1>Plant Leg Balance</h1>
+<p class="sub">NXTPlay Smart Footy prototype for testing the sensor mechanic. Not the production app.</p>
+
+<!-- SETUP -->
+<section id="setup">
+  <div class="card">
+    <h2>Setup</h2>
+    <label>Kicking foot</label>
+    <div class="seg" data-key="foot"><button data-v="R" class="on">Right (plant left)</button><button data-v="L">Left (plant right)</button></div>
+    <label>Phone placement on plant thigh</label>
+    <div class="seg" data-key="place"><button data-v="side" class="on">Side, screen facing out</button><button data-v="front">Front pocket</button></div>
+    <label>Age band (sets the cues)</label>
+    <div class="seg" data-key="age"><button data-v="junior">8 to 12</button><button data-v="youth">13 to 17</button><button data-v="senior" class="on">18+</button></div>
+    <label>Mode</label>
+    <div class="seg" data-key="mode"><button data-v="statue" class="on">Statue</button><button data-v="plant">Plant &amp; Hold</button><button data-v="shadow">Shadow Kick</button></div>
+    <label>Level</label>
+    <div class="seg" data-key="level"><button data-v="1" class="on">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
+    <label>Reps per set</label>
+    <div class="seg" data-key="reps"><button data-v="3">3</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div>
+    <p class="note" id="levelInfo"></p>
+    <div id="progress" class="note"></div>
+  </div>
+  <button class="btn" id="startBtn">Start set</button>
+  <div class="row">
+    <button class="btn ghost small" id="fitBtn">Fit check</button>
+    <button class="btn ghost small" id="demoBtn">Demo: simulated sensors</button>
+  </div>
+  <div class="card note" style="margin-top:12px">
+    <b>How it works:</b> tap Start, strap the phone to the lateral thigh of your plant leg (top of the phone towards the hip), and stand tall on both feet. Audio cues guide every rep, so you don't need the screen. Keep the volume up and the screen on.<br><br>
+    <b>Statue:</b> on "Lift", stand on the plant leg with the kicking leg loaded in a backswing and hold.<br>
+    <b>Plant &amp; Hold:</b> on "Go", take one step into a firm plant and freeze in your follow-through.<br>
+    <b>Shadow Kick:</b> on "Go", do a 3-step approach and a full kick with no ball, then hold the finish.
+  </div>
+  <div id="sensorWarn" class="card warnbox hidden"></div>
+</section>
+
+<!-- LIVE -->
+<section id="live" class="hidden">
+  <div class="card">
+    <div class="status" id="liveStatus">Getting ready</div>
+    <div class="big" id="liveBig">-</div>
+    <canvas id="bubble" width="600" height="600" style="max-width:260px;margin:0 auto"></canvas>
+    <div class="stats">
+      <div class="stat"><b id="sTilt">-</b><span>tilt from ref (&deg;)</span></div>
+      <div class="stat"><b id="sWob">-</b><span>wobble (&deg;/s)</span></div>
+      <div class="stat"><b id="sHz">-</b><span>sample rate (Hz)</span></div>
+    </div>
+  </div>
+  <button class="btn ghost" id="stopBtn">Stop set</button>
+</section>
+
+<!-- RESULTS -->
+<section id="results" class="hidden">
+  <div class="card">
+    <h2>Set results <span class="pill" id="resMode"></span></h2>
+    <div id="unlockMsg" class="status hidden" style="color:var(--acc);font-weight:700"></div>
+    <table id="repTable"></table>
+    <p class="note">Tap a rep to plot it. Score = 0.40 tilt + 0.25 wobble + 0.25 settle + 0.10 collapse (Statue: 0.65 tilt + 0.35 wobble). Pass = score of 70 or more plus the level's tilt and settle targets.</p>
+  </div>
+  <div class="card">
+    <h2>Rep trace</h2>
+    <canvas id="plot" width="1000" height="520"></canvas>
+    <p class="note"><span style="color:var(--blue)">Blue</span> = thigh tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Green line = foot plant, dashed = settled, grey band = level tilt band.</p>
+    <div id="repDetail" class="note"></div>
+    <div class="row">
+      <button class="btn ghost small" id="copyBtn">Copy rep CSV</button>
+      <button class="btn ghost small" id="dlBtn">Download rep CSV</button>
+    </div>
+    <div class="note" id="copyMsg"></div>
+  </div>
+  <button class="btn" id="againBtn">Back to setup</button>
+</section>
+
+<script>
+'use strict';
+// ---------- Config (mirrors the Game Specification) ----------
+const LEVELS = {
+  1:{name:'Beginner Bomber', hold:10, tilt:6,   settle:null},
+  2:{name:'Rookie Kicker',   hold:15, tilt:5,   settle:1000},
+  3:{name:'Rising Star',     hold:20, tilt:4,   settle:800},
+  4:{name:'Elite Junior',    hold:25, tilt:3,   settle:600},
+  5:{name:'AFL Ready',       hold:30, tilt:2.5, settle:450}
+};
+const ZONES = { // adult starting zones: Elite | Good | Developing | Needs Work | Problematic edges
+  tilt:[2,3,5,8], wobble:[10,15,25,40], settle:[300,500,800,1200], collapse:[3,6,10,15] // collapse edges are a placeholder
+};
+const ZONE_NAMES = ['Elite','Good','Developing','Needs Work','Problematic'];
+const CUES = {
+  tilt:    {junior:'Be a lighthouse, tall and still!', youth:'Keep your hips level over your plant foot', senior:v=>`Tilt sway ${v.toFixed(1)} degrees, aim for under 3`},
+  wobble:  {junior:'Freeze like a statue!', youth:'Squeeze your glutes to quieten the wobble', senior:v=>`Wobble ${Math.round(v)} degrees per second, brace through the hip`},
+  settle:  {junior:'Stick the landing like a gymnast!', youth:'Lock in faster after your plant', senior:v=>`Settle ${Math.round(v)} milliseconds, aim for under 500`},
+  collapse:{junior:'Strong leg like a tree trunk!', youth:"Don't sink into your plant leg", senior:v=>`Thigh dropped ${Math.round(v)} degrees after plant, stay firm through contact`}
+};
+const LOSS_TILT = 15;      // deg from reference = balance lost
+const TOUCH_G   = 0.8;     // linear accel spike (g) during hold = free foot touched down
+const PLANT_MIN_G = 0.6;   // min peak (g) to count as a foot plant
+const REP_WINDOW = {plant:5, shadow:6};
+
+// ---------- State ----------
+const S = {foot:'R', place:'side', age:'senior', mode:'statue', level:1, reps:5};
+let demo = false, running = false, stopReq = false;
+let latestU = null, latestUAt = 0, lpG = null;
+let rec = null;            // {t0, samples, ref, lostAt, mode}
+let u0 = null;             // calibrated up vector
+let hzCount = 0, hzLast = performance.now(), hz = 0;
+let lastRepSamples = [], setResults = [], selRep = 0;
+let audio = null, wakeLock = null, demoTimer = null, demoState = null;
+
+// ---------- Helpers ----------
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const D = Math.PI/180;
+const norm = v => { const m = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/m, v[1]/m, v[2]/m]; };
+const dot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const wrap = a => { while(a>180)a-=360; while(a<-180)a+=360; return a; };
+const angBetween = (a,b) => Math.acos(Math.max(-1,Math.min(1,dot(a,b))))/D;
+const meanVec = arr => { if(!arr.length) return null; const s=[0,0,0]; arr.forEach(u=>{s[0]+=u[0];s[1]+=u[1];s[2]+=u[2];}); return norm(s); };
+const rms = arr => arr.length ? Math.sqrt(arr.reduce((a,b)=>a+b*b,0)/arr.length) : 0;
+// sagittal / frontal components of tilt relative to ref (phone long axis along thigh)
+function components(u, ref){
+  const a = wrap((Math.atan2(u[0],u[1]) - Math.atan2(ref[0],ref[1]))/D); // rotation about screen normal
+  const b = wrap((Math.atan2(u[2],u[1]) - Math.atan2(ref[2],ref[1]))/D); // rotation about phone short axis
+  return S.place==='side' ? {sag:a, front:b} : {sag:b, front:a};
+}
+function subScore(v, edges){
+  const pts = [[0,100],[edges[0],90],[edges[1],75],[edges[2],55],[edges[3],30],[edges[3]*2,0]];
+  if (v >= pts[5][0]) return 0;
+  for (let i=1;i<pts.length;i++) if (v <= pts[i][0]) {
+    const [x0,y0]=pts[i-1],[x1,y1]=pts[i]; return y0 + (y1-y0)*(v-x0)/(x1-x0);
+  }
+  return 0;
+}
+const zoneOf = (v, edges) => ZONE_NAMES[edges.findIndex(e => v < e) === -1 ? 4 : edges.findIndex(e => v < e)];
+
+// ---------- Audio / haptics ----------
+function initAudio(){
+  try { audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume(); } catch(e){}
+  try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch(e){}
+}
+function beep(freq=880, ms=150, vol=0.25){
+  if(!audio) return;
+  try { const o=audio.createOscillator(), g=audio.createGain(); o.frequency.value=freq; g.gain.value=vol;
+    o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime+ms/1000); } catch(e){}
+}
+function buzz(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
+function say(text){
+  return new Promise(res => {
+    try {
+      const u = new SpeechSynthesisUtterance(text); u.lang='en-AU'; u.rate=1.05;
+      let done=false; const fin=()=>{ if(!done){done=true;res();} };
+      u.onend=fin; u.onerror=fin; speechSynthesis.speak(u);
+      setTimeout(fin, 600 + text.length*80);
+    } catch(e){ res(); }
+  });
+}
+
+// ---------- Sensors ----------
+function onOrient(e){
+  if (e.beta == null || e.gamma == null) return;
+  const b=e.beta*D, g=e.gamma*D;
+  latestU = [-Math.cos(b)*Math.sin(g), Math.sin(b), Math.cos(b)*Math.cos(g)]; // world-up in device frame
+  latestUAt = performance.now();
+}
+function onMotion(e){
+  const now = performance.now();
+  const aig = e.accelerationIncludingGravity || {};
+  if (aig.x != null) { // gravity fallback (low-pass) when orientation events are missing
+    const v=[aig.x,aig.y,aig.z]; lpG = lpG ? lpG.map((p,i)=>p*0.9+v[i]*0.1) : v;
+  }
+  let u = (latestU && now - latestUAt < 250) ? latestU : (lpG ? norm(lpG) : null);
+  const rr = e.rotationRate || {};
+  const rrMag = Math.hypot(rr.alpha||0, rr.beta||0, rr.gamma||0);
+  let aLin;
+  const a = e.acceleration;
+  if (a && a.x != null) aLin = Math.hypot(a.x,a.y,a.z)/9.81;
+  else if (aig.x != null) aLin = Math.abs(Math.hypot(aig.x,aig.y,aig.z)-9.81)/9.81;
+  else aLin = 0;
+  if (u) ingest(now, u, rrMag, aLin);
+}
+function ingest(now, u, rrMag, aLin){
+  hzCount++;
+  if (now - hzLast >= 1000){ hz = hzCount*1000/(now-hzLast); hzCount=0; hzLast=now; $('sHz').textContent = Math.round(hz); }
+  if (rec){
+    const t = (now - rec.t0)/1000;
+    rec.samples.push({t, u, rr:rrMag, a:aLin});
+    // Statue: set reference from 1.0 to 2.0 s, then watch for loss of balance
+    if (rec.mode==='statue' && !rec.lostAt){
+      if (!rec.ref && t >= 2.0) rec.ref = meanVec(rec.samples.filter(s=>s.t>=1.0).map(s=>s.u));
+      if (rec.ref){
+        if (angBetween(u, rec.ref) > LOSS_TILT || aLin > TOUCH_G) rec.lostAt = t;
+      }
+    }
+  }
+  liveDraw(u, rrMag);
+}
+let lastLive = 0, wobSm = 0;
+function liveDraw(u, rr){
+  const now = performance.now(); wobSm = wobSm*0.9 + rr*0.1;
+  if (now - lastLive < 60 || $('live').classList.contains('hidden')) return; lastLive = now;
+  const ref = (rec && rec.ref) || u0 || u;
+  const c = components(u, ref), tilt = angBetween(u, ref);
+  $('sTilt').textContent = tilt.toFixed(1); $('sWob').textContent = Math.round(wobSm);
+  const cv=$('bubble'), x=cv.getContext('2d'), W=cv.width, R=W/2-20, sc=R/10; // 10 deg = edge
+  x.clearRect(0,0,W,W); x.lineWidth=3;
+  [10,LEVELS[S.level].tilt].forEach((d,i)=>{ x.beginPath(); x.arc(W/2,W/2,d*sc,0,7); x.strokeStyle=i?'#2fbf71':'#2a3746'; x.stroke(); });
+  x.strokeStyle='#2a3746'; x.beginPath(); x.moveTo(W/2,20); x.lineTo(W/2,W-20); x.moveTo(20,W/2); x.lineTo(W-20,W/2); x.stroke();
+  const px = W/2 + Math.max(-10,Math.min(10,c.front))*sc, py = W/2 - Math.max(-10,Math.min(10,c.sag))*sc;
+  x.beginPath(); x.arc(px,py,22,0,7); x.fillStyle = tilt <= LEVELS[S.level].tilt ? '#2fbf71' : (tilt<LOSS_TILT?'#f2b632':'#ef5b5b'); x.fill();
+  x.fillStyle='#9aabbd'; x.font='24px sans-serif'; x.textAlign='center';
+  x.fillText('front-back', W/2, 18+4); x.fillText('side', W-40, W/2-8);
+}
+async function requestSensors(){
+  if (demo) return true;
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+      const r = await DeviceMotionEvent.requestPermission(); if (r !== 'granted') throw new Error('Motion permission denied');
+    }
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+      await DeviceOrientationEvent.requestPermission().catch(()=>{});
+    }
+  } catch(e){ showWarn('Motion access was refused. On iPhone: Settings > Safari > Motion & Orientation Access, then reload.'); return false; }
+  if (!window.isSecureContext) { showWarn('This page must be opened over https:// for motion sensors to work.'); return false; }
+  window.addEventListener('devicemotion', onMotion);
+  window.addEventListener('deviceorientation', onOrient);
+  await sleep(800);
+  if (hzCount === 0 && hz === 0){ showWarn('No motion data is arriving. Open this page on a phone over https://, or use Demo mode.'); return false; }
+  return true;
+}
+function showWarn(t){ const w=$('sensorWarn'); w.textContent=t; w.classList.remove('hidden'); }
+async function keepAwake(on){
+  try { if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+        else if (!on && wakeLock) { await wakeLock.release(); wakeLock=null; } } catch(e){}
+}
+
+// ---------- Demo sensor generator ----------
+function startDemo(){
+  if (demoTimer) return;
+  let t = 0;
+  demoTimer = setInterval(()=>{
+    t += 0.01;
+    const st = demoState || {phase:'idle', t0:0};
+    const lt = t - st.t0;
+    let sag = 0.4*Math.sin(t*1.3), front = 0.3*Math.sin(t*0.9), a = 0.02*Math.random(), rr = 2+2*Math.random();
+    if (st.phase==='statue' && lt > 0.6){ // lift then sway
+      const amp = st.amp;
+      sag += 12 + amp*Math.sin(lt*2.1) + amp*0.4*(Math.random()-.5);
+      front += amp*0.8*Math.sin(lt*1.7+1);
+      rr = amp*6 + 4*Math.random();
+    }
+    if ((st.phase==='plant'||st.phase==='shadow')){
+      const tp = st.phase==='plant' ? 1.2 : 2.0;
+      if (lt < tp){ sag += 20*Math.sin(lt*6); a = 0.3+0.3*Math.abs(Math.sin(lt*6)); rr = 120*Math.abs(Math.sin(lt*6)); }
+      else {
+        const d = lt - tp, k = Math.exp(-d/st.tau);
+        a += (d<0.04 ? 1.8 : 0) + 0.6*k*Math.abs(Math.sin(d*25));
+        sag += 18 + 25*k*Math.sin(d*12) + st.drop*(1-Math.exp(-d/0.1)) + st.amp*Math.sin(d*2.3);
+        front += 6*k*Math.sin(d*9) + st.amp*0.7*Math.sin(d*1.9);
+        rr = 200*k + st.amp*5 + 3*Math.random();
+      }
+    }
+    const u = norm([Math.sin(sag*D), Math.cos(sag*D)*Math.cos(front*D), Math.sin(front*D)]);
+    ingest(performance.now(), u, rr, a);
+  }, 10);
+}
+// Demo generator keeps its own clock (t); restarting the timer resets it per rep.
+function demoBegin(mode){
+  clearInterval(demoTimer); demoTimer=null;
+  demoState = {phase:mode, t0:0, amp:0.8+Math.random()*3, tau:0.12+Math.random()*0.25, drop:2+Math.random()*8};
+  startDemo();
+}
+function demoIdle(){ clearInterval(demoTimer); demoTimer=null; demoState={phase:'idle',t0:0}; startDemo(); }
+
+// ---------- Analysis ----------
+function analyse(samples, mode, level, lostAt){
+  const L = LEVELS[level], out = {mode, level, lost:false};
+  if (samples.length < 20) return {...out, error:'Not enough data'};
+  const end = samples[samples.length-1].t;
+  if (mode === 'statue'){
+    const wEnd = lostAt || end;
+    const win = samples.filter(s => s.t >= 1.0 && s.t <= wEnd);
+    const ref = meanVec(samples.filter(s=>s.t>=1.0 && s.t<=2.0).map(s=>s.u)) || meanVec(win.map(s=>s.u));
+    samples.forEach(s => { s.dev = angBetween(s.u, ref); });
+    out.ref = ref; out.windowStart = 1.0; out.windowEnd = wEnd;
+    out.tilt = rms(win.map(s=>s.dev)); out.wobble = rms(win.map(s=>s.rr));
+    out.held = Math.max(0, wEnd - 1.0);
+    if (lostAt) { out.lost = true; out.score = 0; }
+    else out.score = 0.65*subScore(out.tilt,ZONES.tilt) + 0.35*subScore(out.wobble,ZONES.wobble);
+    out.subs = {tilt:subScore(out.tilt,ZONES.tilt), wobble:subScore(out.wobble,ZONES.wobble)};
+    out.pass = !out.lost && out.score >= 70 && out.tilt <= L.tilt;
+    return out;
+  }
+  // Plant & Hold / Shadow Kick: plant = largest accel peak before the last 2 s
+  let pk = null;
+  samples.forEach((s,i) => {
+    if (s.t < 0.3 || s.t > end - 2.0) return;
+    const prev = samples[i-1], next = samples[i+1];
+    if (prev && next && s.a >= prev.a && s.a >= next.a && s.a >= PLANT_MIN_G && (!pk || s.a > pk.a)) pk = s;
+  });
+  if (!pk) { samples.forEach(s=>{ s.dev = angBetween(s.u, samples[0].u); }); return {...out, error:'No foot plant detected. Plant harder, or check the phone is on the plant leg.'}; }
+  const tp = pk.t; out.plantT = tp;
+  const hold = samples.filter(s => s.t >= tp + 1.0);
+  const ref = meanVec(hold.map(s=>s.u));
+  samples.forEach(s => { s.dev = angBetween(s.u, ref); s.sag = components(s.u, ref).sag; });
+  out.ref = ref; out.windowStart = tp + 1.0; out.windowEnd = end;
+  out.tilt = rms(hold.map(s=>s.dev)); out.wobble = rms(hold.map(s=>s.rr));
+  // settle: first time after plant from which deviation stays inside the band
+  const band = (L.tilt) * 1.5; out.band = band;
+  const post = samples.filter(s => s.t >= tp);
+  let lastOut = tp;
+  post.forEach(s => { if (s.dev > band) lastOut = s.t; });
+  out.settle = (lastOut - tp) * 1000; out.settledT = lastOut;
+  out.neverSettled = lastOut >= end - 0.2;
+  // collapse: change in sagittal angle from plant to plant + 300 ms
+  const at = tt => samples.reduce((b,s)=> Math.abs(s.t-tt) < Math.abs(b.t-tt) ? s : b);
+  out.collapse = Math.abs(at(tp+0.3).sag - at(tp).sag);
+  // loss of balance during the hold
+  const lost = hold.find(s => s.dev > LOSS_TILT || (s.t > tp + 1.2 && s.a > TOUCH_G));
+  if (lost) { out.lost = true; out.lostAt = lost.t; }
+  out.subs = {tilt:subScore(out.tilt,ZONES.tilt), wobble:subScore(out.wobble,ZONES.wobble),
+              settle:subScore(out.settle,ZONES.settle), collapse:subScore(out.collapse,ZONES.collapse)};
+  out.score = out.lost ? 0 : 0.40*out.subs.tilt + 0.25*out.subs.wobble + 0.25*out.subs.settle + 0.10*out.subs.collapse;
+  out.pass = !out.lost && out.score >= 70 && out.tilt <= L.tilt && (L.settle == null || out.settle <= L.settle);
+  return out;
+}
+function cueFor(r){
+  if (r.error) return r.error;
+  if (r.lost) return S.age==='junior' ? 'Whoops, balance lost. Try again!' : 'Balance lost. Reset and go again.';
+  const keys = Object.keys(r.subs); const weakest = keys.reduce((a,b)=> r.subs[a] <= r.subs[b] ? a : b);
+  if (r.subs[weakest] >= 90) return S.age==='junior' ? 'Superstar balance! Every star lit up!' : 'Elite rep. Rock-solid plant leg, keep it up.';
+  const c = CUES[weakest][S.age];
+  const head = r.pass ? (S.age==='junior' ? 'Great rep! ' : 'Pass. ') : '';
+  return head + (typeof c === 'function' ? c(r[weakest]) : c);
+}
+
+// ---------- Session flow ----------
+async function countdown(n, label){
+  for (let i=n;i>0;i--){ if(stopReq) return; $('liveBig').textContent=i; beep(660,120); await sleep(1000); }
+  $('liveBig').textContent = label; beep(990,300); buzz(200);
+}
+async function recordRep(mode, level){
+  const dur = mode==='statue' ? LEVELS[level].hold + 1.0 : REP_WINDOW[mode];
+  rec = {t0: performance.now(), samples: [], ref:null, lostAt:null, mode};
+  if (demo) demoBegin(mode);
+  const start = performance.now();
+  while (performance.now() - start < dur*1000){
+    if (stopReq) break;
+    if (rec.lostAt){ beep(220,400); buzz([100,80,100]); break; }
+    const left = Math.ceil(dur - (performance.now()-start)/1000);
+    if (mode==='statue') $('liveBig').textContent = left;
+    await sleep(100);
+  }
+  const r = rec; rec = null; if (demo) demoIdle();
+  beep(1200,150); await sleep(80); beep(1200,150); buzz(100);
+  return r;
+}
+async function calibrate(){
+  $('liveStatus').textContent = 'Strap phone to plant thigh. Stand tall on both feet.';
+  await say(`Strap the phone to your ${S.foot==='R'?'left':'right'} thigh, then stand tall on both feet.`);
+  await countdown(5, 'Hold still');
+  if (stopReq) return false;
+  const buf = []; rec = {t0:performance.now(), samples:buf, mode:'cal'};
+  await sleep(3000); rec = null;
+  if (buf.length < 30){ $('liveStatus').textContent='Not enough sensor data.'; await say('Not enough sensor data.'); return false; }
+  u0 = meanVec(buf.map(s=>s.u));
+  if (Math.abs(u0[1]) < 0.7 && !demo){ await say('Check the phone is upright along your thigh.'); }
+  return true;
+}
+async function runSet(){
+  running = true; stopReq = false; setResults = [];
+  show('live'); initAudio(); await keepAwake(true);
+  if (!await requestSensors()){ show('setup'); running=false; return; }
+  if (demo) demoIdle();
+  if (!await calibrate()){ finish(); return; }
+  const mode = S.mode, level = S.level;
+  for (let i=1; i<=S.reps && !stopReq; i++){
+    $('liveStatus').textContent = `Rep ${i} of ${S.reps}`;
+    const instr = mode==='statue' ? 'Get ready to lift.' : mode==='plant' ? 'Get ready to step and plant.' : 'Get ready for your approach.';
+    await say(`Rep ${i}. ${instr}`);
+    await countdown(3, mode==='statue' ? 'Lift' : 'Go');
+    if (stopReq) break;
+    say(mode==='statue' ? 'Lift' : 'Go');
+    const r = await recordRep(mode, level);
+    const res = analyse(r.samples, mode, level, r.lostAt);
+    res.samples = r.samples; res.n = i; setResults.push(res);
+    const cue = cueFor(res); $('liveStatus').textContent = cue;
+    $('liveBig').textContent = res.error ? '!' : Math.round(res.score);
+    await say((res.error ? '' : `Score ${Math.round(res.score)}. `) + cue);
+    if (i < S.reps) { $('liveBig').textContent='Rest'; await sleep(3000); }
+  }
+  finish();
+}
+function finish(){
+  running = false; rec = null; keepAwake(false);
+  if (demo) { clearInterval(demoTimer); demoTimer=null; }
+  if (!setResults.length){ show('setup'); return; }
+  saveHistory(setResults);
+  const unlocked = checkUnlock();
+  renderResults(unlocked);
+  show('results');
+}
+
+// ---------- History & unlock (stored on this device only) ----------
+function histKey(){ return 'nxtplay-plb-history'; }
+function loadHistory(){ try { return JSON.parse(localStorage.getItem(histKey())||'{}'); } catch(e){ return {}; } }
+function saveHistory(res){
+  try { const h = loadHistory(); const k = 'L'+S.level;
+    h[k] = (h[k]||[]).concat(res.filter(r=>!r.error).map(r=>r.pass?1:0)).slice(-10);
+    localStorage.setItem(histKey(), JSON.stringify(h)); } catch(e){}
+}
+function checkUnlock(){
+  const h = loadHistory()['L'+S.level] || [];
+  const passes = h.reduce((a,b)=>a+b,0);
+  if (h.length >= 10 && passes >= 8 && S.level < 5){
+    S.level++; try { localStorage.setItem('nxtplay-plb-level', S.level); } catch(e){}
+    return `Level ${S.level} unlocked: ${LEVELS[S.level].name}!`;
+  }
+  return null;
+}
+function renderProgress(){
+  const h = loadHistory()['L'+S.level] || []; const p = h.reduce((a,b)=>a+b,0);
+  $('progress').innerHTML = `Level ${S.level} progress: <b>${p}</b> passes in last ${h.length} of 10 reps (8 needed to unlock).<div class="bar"><i style="width:${p*10}%"></i></div>`;
+}
+
+// ---------- Results UI ----------
+function fmt(v, d=1){ return v==null || isNaN(v) ? '-' : v.toFixed(d); }
+function renderResults(unlocked){
+  $('resMode').textContent = `${({statue:'Statue',plant:'Plant & Hold',shadow:'Shadow Kick'})[setResults[0].mode]} · Level ${setResults[0].level}`;
+  const um = $('unlockMsg'); um.classList.toggle('hidden', !unlocked); if (unlocked){ um.textContent = unlocked; say(unlocked); }
+  const statue = setResults[0].mode==='statue';
+  let h = `<tr><th>Rep</th><th>Score</th><th>Tilt&nbsp;&deg;</th><th>Wobble</th>${statue?'<th>Held s</th>':'<th>Settle ms</th><th>Collapse&nbsp;&deg;</th>'}<th></th></tr>`;
+  setResults.forEach((r,i) => {
+    const res = r.error ? '<span class="fail">No plant</span>' : r.lost ? '<span class="fail">Lost</span>' : r.pass ? '<span class="pass">Pass</span>' : '<span class="fail">Miss</span>';
+    h += `<tr data-i="${i}" class="${i===selRep?'sel':''}"><td>${r.n}</td><td><b>${r.error?'-':Math.round(r.score)}</b></td><td>${fmt(r.tilt)}</td><td>${fmt(r.wobble,0)}</td>` +
+         (statue ? `<td>${fmt(r.held)}</td>` : `<td>${r.settle==null?'-':Math.round(r.settle)}${r.neverSettled?'+':''}</td><td>${fmt(r.collapse)}</td>`) + `<td>${res}</td></tr>`;
+  });
+  $('repTable').innerHTML = h;
+  $('repTable').querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => { selRep = +tr.dataset.i; renderResults(null); });
+  renderPlot(setResults[selRep] || setResults[0]);
+}
+function renderPlot(r){
+  const cv=$('plot'), x=cv.getContext('2d'), W=cv.width, H=cv.height, pad=50;
+  x.clearRect(0,0,W,H);
+  const s = r.samples || []; if (!s.length) return;
+  const tMax = s[s.length-1].t, devMax = Math.max(LOSS_TILT, ...s.map(p=>p.dev||0).slice(0)) , aMax = Math.max(2, ...s.map(p=>p.a));
+  const X = t => pad + (t/tMax)*(W-pad*1.5), Y = d => H-pad - (d/Math.min(devMax,30))*(H-pad*1.6), YA = a => H-pad - (a/aMax)*(H-pad*1.6);
+  x.font='22px sans-serif'; x.fillStyle='#9aabbd'; x.strokeStyle='#2a3746'; x.lineWidth=1;
+  for (let t=0;t<=tMax;t+=Math.max(1,Math.round(tMax/8))){ x.beginPath(); x.moveTo(X(t),pad*0.6); x.lineTo(X(t),H-pad); x.stroke(); x.fillText(t+'s', X(t)-10, H-pad+28); }
+  [0,5,10,15].forEach(d => { x.fillText(d+'°', 4, Y(d)+7); });
+  const band = r.band || LEVELS[r.level].tilt;
+  x.fillStyle='rgba(154,171,189,.12)'; x.fillRect(X(r.windowStart||0), Y(band), X(tMax)-X(r.windowStart||0), Y(0)-Y(band));
+  const line = (f, col, w) => { x.beginPath(); s.forEach((p,i)=>{ const yy=f(p); i?x.lineTo(X(p.t),yy):x.moveTo(X(p.t),yy); }); x.strokeStyle=col; x.lineWidth=w; x.stroke(); };
+  line(p=>YA(p.a), '#f2b632', 1.5);
+  line(p=>Y(Math.min(p.dev||0, 30)), '#4aa3ff', 3);
+  const vline = (t,col,dash) => { if (t==null) return; x.setLineDash(dash?[10,8]:[]); x.beginPath(); x.moveTo(X(t),pad*0.6); x.lineTo(X(t),H-pad); x.strokeStyle=col; x.lineWidth=3; x.stroke(); x.setLineDash([]); };
+  vline(r.plantT, '#2fbf71', false); if (!r.neverSettled) vline(r.settledT, '#2fbf71', true);
+  vline(r.lostAt, '#ef5b5b', false);
+  const z = k => r[k]==null ? '' : ` (${zoneOf(r[k], ZONES[k])})`;
+  $('repDetail').innerHTML = r.error ? r.error :
+    `Score <b>${Math.round(r.score)}</b>. Tilt sway ${fmt(r.tilt)}°${z('tilt')}, wobble ${fmt(r.wobble,0)}°/s${z('wobble')}` +
+    (r.mode==='statue' ? `, held ${fmt(r.held)} s.` : `, settle ${Math.round(r.settle)} ms${r.neverSettled?' (never settled)':''}${z('settle')}, collapse ${fmt(r.collapse)}°${z('collapse')}.`) +
+    ` Samples: ${s.length} (${Math.round(s.length/tMax)} Hz). Cue: "${cueFor(r)}"`;
+}
+function repCSV(r){
+  const rows = ['t_s,up_x,up_y,up_z,tilt_from_ref_deg,rotation_rate_deg_s,linear_accel_g'];
+  (r.samples||[]).forEach(p => rows.push([p.t.toFixed(3), p.u[0].toFixed(5), p.u[1].toFixed(5), p.u[2].toFixed(5), (p.dev||0).toFixed(2), p.rr.toFixed(1), p.a.toFixed(3)].join(',')));
+  return rows.join('\n');
+}
+
+// ---------- Fit check ----------
+async function fitCheck(){
+  show('live'); initAudio(); stopReq=false;
+  if (!await requestSensors()){ show('setup'); return; }
+  if (demo) demoIdle();
+  $('liveStatus').textContent = 'Strap the phone on, then tap it firmly twice.'; $('liveBig').textContent='Tap x2';
+  await say('Strap the phone on, then tap it firmly twice.');
+  const buf=[]; rec={t0:performance.now(), samples:buf, mode:'fit'};
+  if (demo){ setTimeout(()=>{ for(let k=0;k<30;k++) setTimeout(()=>ingest(performance.now(), [0,1,0], 5, k<2?1.6:(k<14?0.4*Math.exp(-k/5):0.02)),k*10); }, 800); }
+  await sleep(4000); rec=null;
+  const spikes=[]; buf.forEach((s,i)=>{ if (s.a>1.0 && (!spikes.length || s.t - spikes[spikes.length-1].t > 0.3)) spikes.push({t:s.t,i}); });
+  let msg;
+  if (!spikes.length) msg = 'No taps detected. Tap harder and try again.';
+  else {
+    const rings = spikes.map(sp => { let end = sp.t; for (let j=sp.i;j<buf.length;j++){ if (buf[j].a > 0.15) end = buf[j].t; if (buf[j].t - sp.t > 0.6) break; } return (end-sp.t)*1000; });
+    const avg = rings.reduce((a,b)=>a+b,0)/rings.length;
+    msg = avg < 120 ? `Good fit (ring-down ${Math.round(avg)} ms).` : avg < 250 ? `OK fit (ring-down ${Math.round(avg)} ms). Tighten if you can.` : `Loose (ring-down ${Math.round(avg)} ms). Tighten the band or use a fitted pocket.`;
+  }
+  $('liveStatus').textContent = msg; $('liveBig').textContent = '✓';
+  await say(msg); await sleep(1500); if (demo){ clearInterval(demoTimer); demoTimer=null; }
+  show('setup');
+  showWarn('Fit check: ' + msg);
+}
+
+// ---------- UI wiring ----------
+function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); } }
+function syncSeg(){
+  document.querySelectorAll('.seg').forEach(seg => { const k=seg.dataset.key;
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[k])===b.dataset.v)); });
+  const L = LEVELS[S.level];
+  $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '. Plant modes unlock at Level 2 in the full game (all open here for testing).');
+}
+document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; const k = seg.dataset.key;
+  S[k] = ['level','reps'].includes(k) ? +b.dataset.v : b.dataset.v; syncSeg(); renderProgress();
+}));
+$('startBtn').onclick = () => { demo = false; runSet(); };
+$('demoBtn').onclick = () => { demo = true; runSet(); };
+$('fitBtn').onclick = () => { demo = false; fitCheck(); };
+$('stopBtn').onclick = () => { stopReq = true; try{speechSynthesis.cancel();}catch(e){} };
+$('againBtn').onclick = () => { selRep = 0; show('setup'); };
+$('copyBtn').onclick = async () => {
+  try { await navigator.clipboard.writeText(repCSV(setResults[selRep])); $('copyMsg').textContent='Copied to clipboard.'; }
+  catch(e){ $('copyMsg').textContent='Copy was blocked by the browser. Use Download instead.'; }
+};
+$('dlBtn').onclick = () => {
+  const b = new Blob([repCSV(setResults[selRep])], {type:'text/csv'}); const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = `plb_rep${selRep+1}_${S.mode}.csv`; document.body.appendChild(a); a.click(); a.remove();
+};
+try { const lv = +localStorage.getItem('nxtplay-plb-level'); if (lv>=1 && lv<=5) S.level = lv; } catch(e){}
+show('setup');
+</script>
+</body>
+</html>
