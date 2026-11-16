@@ -153,7 +153,7 @@
   <div class="card">
     <h2>Rep trace</h2>
     <canvas id="plot" width="1000" height="520"></canvas>
-    <p class="note"><span style="color:var(--blue)">Blue</span> = hip tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Green line = foot plant, green dashed = settled, blue dashed = ball contact (smart footy), grey band = level tilt band.</p>
+    <p class="note"><span style="color:var(--blue)">Blue</span> = hip tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Green line = foot plant (or the kick, in Balance Kick), green dashed = settled, blue dashed = ball contact (smart footy), grey band = level tilt band.</p>
     <div id="repDetail" class="note"></div>
     <div class="row">
       <button class="btn ghost small" id="copyBtn">Copy rep CSV</button>
@@ -187,10 +187,9 @@ const CUES = {
 const LOSS_TILT = 15;      // deg from reference = balance lost
 const TOUCH_G   = 0.8;     // linear accel spike (g) during hold = free foot touched down
 const PLANT_MIN_G = 0.6;   // min peak (g) to count as a foot plant
-const REP_WINDOW = {plant:5, shadow:6, realkick:7, smartkick:7};
 
 // ---------- State ----------
-const S = {foot:'R', place:'side', age:'senior', mode:'statue', level:1, reps:5, guide:true};
+const S = {foot:'R', place:'side', age:'senior', mode:'statue', stage:'balance', level:1, reps:5, guide:true};
 let demo = false, running = false, stopReq = false;
 let latestU = null, latestUAt = 0, lpG = null;
 let rec = null;            // {t0, samples, ref, lostAt, mode}
@@ -340,7 +339,14 @@ function startDemo(){
       front += amp*0.8*Math.sin(lt*1.7+1);
       rr = amp*6 + 4*Math.random();
     }
-    if (['plant','shadow','realkick','smartkick'].includes(st.phase)){
+    if (st.phase==='kickbal' && lt > 0.6){ // lift, sway, kick ~0.35 s after the cue, recoil, hold
+      const amp = st.amp, d = lt - (KICK_CUE + 0.35);
+      sag += 12 + amp*Math.sin(lt*2.1); front += amp*0.8*Math.sin(lt*1.7+1); rr = amp*6 + 4*Math.random();
+      if (d >= 0){ const k = Math.exp(-d/st.tau);
+        sag += 24*k*Math.sin(d*12) + st.drop*0.5*(1-Math.exp(-d/0.1)); front += 5*k*Math.sin(d*9);
+        rr += 260*k; a += (d<0.05 ? 0.7 : 0) + 0.3*k*Math.abs(Math.sin(d*25)); }
+    }
+    if (st.phase==='plant' || st.phase==='run'){
       const tp = st.phase==='plant' ? 1.2 : 2.0;
       if (lt < tp){ sag += 20*Math.sin(lt*6); a = 0.3+0.3*Math.abs(Math.sin(lt*6)); rr = 120*Math.abs(Math.sin(lt*6)); }
       else {
@@ -364,8 +370,9 @@ function demoBegin(mode){
 function demoIdle(){ clearInterval(demoTimer); demoTimer=null; demoState={phase:'idle',t0:0}; startDemo(); }
 
 // ---------- Analysis ----------
-function analyse(samples, mode, level, lostAt){
-  const L = LEVELS[level], out = {mode, level, lost:false};
+function analyse(samples, mode, level, lostAt, stage){
+  const L = LEVELS[level], out = {mode, level, stage, lost:false};
+  if (analysisKind(mode, stage) === 'balkick' && samples.length >= 20) return analyseBalanceKick(samples, out, L);
   if (samples.length < 20) return {...out, error:'Not enough data'};
   const end = samples[samples.length-1].t;
   if (mode === 'statue'){
@@ -415,6 +422,30 @@ function analyse(samples, mode, level, lostAt){
   out.pass = !out.lost && out.score >= 70 && out.tilt <= L.tilt && (L.settle == null || out.settle <= L.settle);
   return out;
 }
+function analyseBalanceKick(samples, out, L){
+  const end = samples[samples.length-1].t;
+  let kk = null; // kick = biggest hip rotation-rate peak after the cue
+  samples.forEach(s => { if (s.t >= KICK_CUE - 0.2 && s.t <= end - 1.0 && s.rr >= 60 && (!kk || s.rr > kk.rr)) kk = s; });
+  const preRef = meanVec(samples.filter(s => s.t >= 1.0 && s.t <= Math.min(2.0, KICK_CUE)).map(s => s.u)) || samples[0].u;
+  if (!kk){ samples.forEach(s => s.dev = angBetween(s.u, preRef)); return {...out, error:'No kick detected. Kick through firmly after the "Kick" cue.'}; }
+  const tk = kk.t; out.kickT = tk;
+  const postRef = meanVec(samples.filter(s => s.t >= tk + 1.0).map(s => s.u)) || preRef;
+  samples.forEach(s => { const ref = s.t < tk ? preRef : postRef; s.dev = angBetween(s.u, ref); s.sag = components(s.u, postRef).sag; });
+  const win = samples.filter(s => (s.t >= 1.0 && s.t <= tk - 0.15) || s.t >= tk + 1.0);
+  out.ref = postRef; out.windowStart = tk + 1.0; out.windowEnd = end;
+  out.tilt = rms(win.map(s => s.dev)); out.wobble = rms(win.map(s => s.rr));
+  const band = L.tilt * 1.5; out.band = band;
+  let lastOut = tk; samples.forEach(s => { if (s.t >= tk && s.dev > band) lastOut = s.t; });
+  out.settle = (lastOut - tk) * 1000; out.settledT = lastOut; out.neverSettled = lastOut >= end - 0.2;
+  const at = tt => samples.reduce((b,s) => Math.abs(s.t-tt) < Math.abs(b.t-tt) ? s : b);
+  out.collapse = Math.abs(at(tk+0.3).sag - at(tk).sag);
+  const lost = samples.find(s => s.t >= 1.0 && (s.t < tk - 0.3 || s.t > tk + 0.8) && (s.dev > LOSS_TILT || s.a > TOUCH_G));
+  if (lost){ out.lost = true; out.lostAt = lost.t; }
+  out.subs = {tilt:subScore(out.tilt,ZONES.tilt), wobble:subScore(out.wobble,ZONES.wobble), settle:subScore(out.settle,ZONES.settle), collapse:subScore(out.collapse,ZONES.collapse)};
+  out.score = out.lost ? 0 : 0.40*out.subs.tilt + 0.25*out.subs.wobble + 0.25*out.subs.settle + 0.10*out.subs.collapse;
+  out.pass = !out.lost && out.score >= 70 && out.tilt <= L.tilt && (L.settle == null || out.settle <= L.settle);
+  return out;
+}
 function cueFor(r){
   const k = r.ball ? `${r.ball.rating} kick. ` : '';
   return k + cueCore(r);
@@ -426,7 +457,9 @@ function cueCore(r){
   if (r.subs[weakest] >= 90) return S.age==='junior' ? 'Superstar balance! Every star lit up!' : 'Elite rep. Rock-solid plant leg, keep it up.';
   const c = CUES[weakest][S.age];
   const head = r.pass ? (S.age==='junior' ? 'Great rep! ' : 'Pass. ') : '';
-  return head + (typeof c === 'function' ? c(r[weakest]) : c);
+  let txt = typeof c === 'function' ? c(r[weakest]) : c;
+  if (r.kickT != null) txt = txt.replace('after plant', 'as you kicked').replace('after your plant', 'after your kick');
+  return head + txt;
 }
 
 // ---------- Session flow ----------
@@ -434,13 +467,15 @@ async function countdown(n, label){
   for (let i=n;i>0;i--){ if(stopReq) return; $('liveBig').textContent=i; beep(660,120); await sleep(1000); }
   $('liveBig').textContent = label; beep(990,300); buzz(200);
 }
-async function recordRep(mode, level){
-  const dur = mode==='statue' ? LEVELS[level].hold + 1.0 : REP_WINDOW[mode];
+async function recordRep(mode, level, stage){
+  const dur = windowFor(mode, stage, level), kind = analysisKind(mode, stage);
   rec = {t0: performance.now(), samples: [], ref:null, lostAt:null, mode};
-  if (demo) demoBegin(mode);
-  const start = performance.now();
+  if (demo) demoBegin(demoPhase(mode, stage));
+  const start = performance.now(); let cued = false;
   while (performance.now() - start < dur*1000){
     if (stopReq) break;
+    if (kind==='balkick' && !cued && performance.now() - start >= KICK_CUE*1000){
+      cued = true; beep(990,250); buzz(150); say('Kick'); $('liveBig').textContent = 'Kick!'; }
     if (rec.lostAt){ beep(220,400); buzz([100,80,100]); break; }
     const left = Math.ceil(dur - (performance.now()-start)/1000);
     if (mode==='statue') $('liveBig').textContent = left;
@@ -472,25 +507,25 @@ async function runSet(){
     await say('Smart footy pairing is not in this prototype yet. Your balance will still be scored.');
   }
   if (!await calibrate()){ finish(); return; }
-  const mode = S.mode, level = S.level;
+  const mode = S.mode, level = S.level, stage = S.stage;
   for (let i=1; i<=S.reps && !stopReq; i++){
     $('liveStatus').textContent = `Rep ${i} of ${S.reps}`;
-    const M = MODES[mode];
+    const M = modeInfo(mode, stage);
     if (i === 1 && S.guide) await say(M.intro);
     await say(`Rep ${i}. ${S.guide ? M.cue : M.short}`);
     $('liveTip').textContent = M.hold;
     await countdown(3, M.go);
     if (stopReq) break;
     say(M.go);
-    const r = await recordRep(mode, level);
-    const res = analyse(r.samples, mode, level, r.lostAt);
+    const r = await recordRep(mode, level, stage);
+    const res = analyse(r.samples, mode, level, r.lostAt, stage);
     res.samples = r.samples; res.n = i;
     if (mode === 'smartkick') attachBall(res);
     setResults.push(res);
     const cue = cueFor(res); $('liveStatus').textContent = cue;
     $('liveBig').textContent = res.error ? '!' : Math.round(res.score);
     await say((res.error ? '' : `Score ${Math.round(res.score)}. `) + cue);
-    if (i < S.reps) { $('liveBig').textContent='Rest'; $('liveTip').textContent = mode.includes('kick') && mode!=='shadow' ? 'Grab your footy and walk back to your start spot' : ''; await sleep(mode.includes('kick') && mode!=='shadow' ? 8000 : 3000); }
+    if (i < S.reps) { $('liveBig').textContent='Rest'; const fetch = isKick(mode) && KICK_TYPES[mode].ball; $('liveTip').textContent = fetch ? 'Grab your footy and get back to your start spot' : ''; await sleep(fetch ? 8000 : 3000); }
   }
   finish();
 }
@@ -507,29 +542,55 @@ function finish(){
 // ---------- History & unlock (stored on this device only) ----------
 function histKey(){ return 'nxtplay-plb-history'; }
 function loadHistory(){ try { return JSON.parse(localStorage.getItem(histKey())||'{}'); } catch(e){ return {}; } }
+const passesOf = arr => (arr||[]).reduce((a,b)=>a+b,0);
 function saveHistory(res){
-  try { const h = loadHistory(); const k = 'L'+S.level;
-    h[k] = (h[k]||[]).concat(res.filter(r=>!r.error).map(r=>r.pass?1:0)).slice(-10);
+  try { const h = loadHistory(), add = res.filter(r=>!r.error).map(r=>r.pass?1:0);
+    h['L'+S.level] = (h['L'+S.level]||[]).concat(add).slice(-10);
+    if (isKick(S.mode)){ const k = `K:${S.mode}:${S.stage}`; h[k] = (h[k]||[]).concat(add).slice(-10); }
     localStorage.setItem(histKey(), JSON.stringify(h)); } catch(e){}
 }
+// Full-game rule: within each kick type, a stage opens once the stage before it has 8 passes in its last 10 reps
+function stageUnlocked(mode, stage){
+  const i = STAGE_ORDER.indexOf(stage); if (i <= 0) return true;
+  const h = loadHistory(), prev = h[`K:${mode}:${STAGE_ORDER[i-1]}`] || [];
+  return !!h[`U:${mode}:${stage}`] || (prev.length >= 10 && passesOf(prev) >= 8);
+}
+function stageLockNote(mode, stage){
+  if (stageUnlocked(mode, stage)) return '';
+  const prev = STAGES[STAGE_ORDER[STAGE_ORDER.indexOf(stage)-1]].name;
+  return `<span style="color:var(--warn)">In the full game this unlocks after 8 of 10 passing reps at ${prev} (open here for testing).</span>`;
+}
 function checkUnlock(){
-  const h = loadHistory()['L'+S.level] || [];
-  const passes = h.reduce((a,b)=>a+b,0);
-  if (h.length >= 10 && passes >= 8 && S.level < 5){
+  const msgs = [], h = loadHistory();
+  const lv = h['L'+S.level] || [];
+  if (lv.length >= 10 && passesOf(lv) >= 8 && S.level < 5){
     S.level++; try { localStorage.setItem('nxtplay-plb-level', S.level); } catch(e){}
-    return `Level ${S.level} unlocked: ${LEVELS[S.level].name}!`;
+    msgs.push(`Level ${S.level} unlocked: ${LEVELS[S.level].name}!`);
   }
-  return null;
+  if (isKick(S.mode)){
+    const i = STAGE_ORDER.indexOf(S.stage), st = h[`K:${S.mode}:${S.stage}`] || [];
+    if (i < 2 && st.length >= 10 && passesOf(st) >= 8 && !h[`U:${S.mode}:${STAGE_ORDER[i+1]}`]){
+      try { h[`U:${S.mode}:${STAGE_ORDER[i+1]}`] = 1; localStorage.setItem(histKey(), JSON.stringify(h)); } catch(e){}
+      msgs.push(`${KICK_TYPES[S.mode].name}: ${STAGES[STAGE_ORDER[i+1]].name} unlocked!`);
+    }
+  }
+  return msgs.length ? msgs.join(' ') : null;
 }
 function renderProgress(){
-  const h = loadHistory()['L'+S.level] || []; const p = h.reduce((a,b)=>a+b,0);
-  $('progress').innerHTML = `Level ${S.level} progress: <b>${p}</b> passes in last ${h.length} of 10 reps (8 needed to unlock).<div class="bar"><i style="width:${p*10}%"></i></div>`;
+  const h = loadHistory(), lv = h['L'+S.level] || [], p = passesOf(lv);
+  let html = `Level ${S.level} progress: <b>${p}</b> passes in last ${lv.length} of 10 reps (8 needed to unlock).<div class="bar"><i style="width:${p*10}%"></i></div>`;
+  if (isKick(S.mode)){
+    const st = h[`K:${S.mode}:${S.stage}`] || [], i = STAGE_ORDER.indexOf(S.stage);
+    html += `<div style="margin-top:8px">${KICK_TYPES[S.mode].name}, ${STAGES[S.stage].name}: <b>${passesOf(st)}</b> passes in last ${st.length} of 10` +
+            (i < 2 ? ` (8 unlocks ${STAGES[STAGE_ORDER[i+1]].name}).` : '.') + `<div class="bar"><i style="width:${passesOf(st)*10}%"></i></div></div>`;
+  }
+  $('progress').innerHTML = html;
 }
 
 // ---------- Smart footy (simulated until ball pairing exists) ----------
 function attachBall(res){
   if (!demo || res.error){ res.ball = null; return; }
-  const contactT = res.plantT + 0.22;
+  const contactT = res.kickT != null ? res.kickT : res.plantT + 0.22;
   const near = res.samples.filter(s => Math.abs(s.t - contactT) <= 0.05);
   const contactWobble = near.length ? near.reduce((a,s)=>a+s.rr,0)/near.length : null;
   const v = (res.lost ? 40 : res.score) + (Math.random()-0.5)*20;
@@ -551,7 +612,8 @@ function ballSummary(){
 // ---------- Results UI ----------
 function fmt(v, d=1){ return v==null || isNaN(v) ? '-' : v.toFixed(d); }
 function renderResults(unlocked){
-  $('resMode').textContent = `${MODES[setResults[0].mode].name} · Level ${setResults[0].level}`;
+  const R0 = setResults[0], I0 = modeInfo(R0.mode, R0.stage);
+  $('resMode').textContent = `${I0.name}${I0.stageName ? ': ' + I0.stageName : ''} · Level ${R0.level}`;
   const um = $('unlockMsg'); um.classList.toggle('hidden', !unlocked); if (unlocked){ um.textContent = unlocked; say(unlocked); }
   const statue = setResults[0].mode==='statue', smart = setResults[0].mode==='smartkick';
   let h = `<tr><th>Rep</th><th>Score</th><th>Tilt&nbsp;&deg;</th><th>Wobble</th>${statue?'<th>Held s</th>':'<th>Settle ms</th><th>Hip dip&nbsp;&deg;</th>'}${smart?'<th>Kick</th>':''}<th></th></tr>`;
@@ -581,7 +643,7 @@ function renderPlot(r){
   line(p=>YA(p.a), '#f2b632', 1.5);
   line(p=>Y(Math.min(p.dev||0, 30)), '#4aa3ff', 3);
   const vline = (t,col,dash) => { if (t==null) return; x.setLineDash(dash?[10,8]:[]); x.beginPath(); x.moveTo(X(t),pad*0.6); x.lineTo(X(t),H-pad); x.strokeStyle=col; x.lineWidth=3; x.stroke(); x.setLineDash([]); };
-  vline(r.plantT, '#2fbf71', false); if (!r.neverSettled) vline(r.settledT, '#2fbf71', true);
+  vline(r.plantT != null ? r.plantT : r.kickT, '#2fbf71', false); if (!r.neverSettled) vline(r.settledT, '#2fbf71', true);
   vline(r.lostAt, '#ef5b5b', false);
   if (r.ball) vline(r.ball.contactT, '#4aa3ff', true);
   const z = k => r[k]==null ? '' : ` (${zoneOf(r[k], ZONES[k])})`;
@@ -643,41 +705,62 @@ const MODES = {
     intro:'Plant and Hold. Stand one big step back. When you hear Go, step onto your plant leg, swing your kicking leg through, and freeze until the double beep.',
     cue:'Get ready: one step, plant, swing through, and freeze.', short:'Get ready to step and plant.', go:'Go',
     hold:'Step, plant, swing through, then freeze'
-  },
-  shadow: {
-    name:'Shadow Kick', level:3, tag:'The full kick, no ball needed',
-    what:'Run in and kick an imaginary ball, then hold your finish. This is the real kicking action, and the other modes build up to it.',
-    steps:['Start three steps back from your spot','On "Go", take three steps in and plant','Kick through an imaginary ball dropped at knee height','Hold your finish on the plant leg until the double beep'],
-    measures:['All four: settle, hip dip, tilt and wobble'],
-    mistakes:['Rushing the run-in so the plant is out of control','Falling away to the side after the kick','Letting the kicking leg drag you off balance'],
-    tip:'Start with a walking run-in. Speed up only once your scores are passing.',
-    intro:'Shadow Kick. Start three steps back. When you hear Go, take three steps, plant, kick an imaginary ball, and hold your finish until the double beep.',
-    cue:'Get ready: three steps, plant, kick, and hold your finish.', short:'Get ready for your approach.', go:'Go',
-    hold:'Three steps, plant, kick, hold the finish'
-  },
-  realkick: {
-    name:'Real Kick', level:3, tag:'Kick a real footy, any ball',
-    what:'Your full kick with any footy, then hold your finish. The phone scores your plant leg. It can\'t see the ball, so watch where your kicks go too.',
-    steps:['Start three steps back, holding the footy','Take three steps in, then plant','Drop the ball onto your foot and kick through','Hold your finish on the plant leg until the double beep'],
-    measures:['Settle, hip dip, tilt and wobble, same as Shadow Kick','Not ball flight: the phone only measures your balance'],
-    mistakes:['Turning to watch the ball instead of holding your finish','Dropping the ball off line, so you reach for it','Planting too close to or too far from where the ball drops'],
-    tip:'Kick into a net, against a wall, or to a partner so you are not chasing the ball. You get 8 seconds between reps to collect it.',
-    intro:'Real Kick. Start three steps back holding your footy. When you hear Go, take three steps, plant, drop and kick, then hold your finish until the double beep.',
-    cue:'Get ready: three steps, plant, drop, kick, and hold.', short:'Get ready to kick.', go:'Go',
-    hold:'Three steps, plant, drop, kick, hold the finish'
-  },
-  smartkick: {
-    name:'Smart Footy Kick', level:3, tag:'Balance plus kick data from the smart ball',
-    what:'Same as Real Kick, but with the NXTPlay smart footy. The ball records the exact moment of contact and rates the kick, so you can see how your balance affects your kicking.',
-    steps:['Turn on your smart footy and start three steps back','Take three steps in, then plant','Drop and kick: the ball records contact and rates the kick','Hold your finish, then hear your balance score and kick rating'],
-    measures:['Your balance at the exact moment the ball is struck','Kick rating from the ball: good, okay or bad','How your balance compares between good and bad kicks'],
-    mistakes:['Turning to watch the ball instead of holding your finish','Dropping the ball off line, so you reach for it','Kicking out of Bluetooth range of your phone'],
-    tip:'Prototype note: ball pairing isn\'t built yet. Use "Try with fake sensors" to see how smart footy results will look.',
-    intro:'Smart Footy Kick. Start three steps back holding your smart footy. When you hear Go, take three steps, plant, drop and kick, then hold your finish until the double beep.',
-    cue:'Get ready: three steps, plant, drop, kick, and hold.', short:'Get ready to kick.', go:'Go',
-    hold:'Three steps, plant, drop, kick, hold the finish'
   }
 };
+const KICK_TYPES = {
+  shadow:   {name:'Shadow Kick', level:3, ball:false, tag:'The kicking action, no ball needed',
+             what:'Kick an imaginary ball and hold your finish. Learn the movement in three stages before adding a real footy.',
+             tip:'Get each stage passing before you move on. Smooth beats fast.'},
+  realkick: {name:'Real Kick', level:3, ball:true, tag:'Kick a real footy, any ball',
+             what:'The same three stages with any footy. The phone scores your plant leg. It can\'t see the ball, so watch where your kicks go too.',
+             tip:'Kick into a net, against a wall, or to a partner so you are not chasing the ball. You get 8 seconds between reps to collect it.'},
+  smartkick:{name:'Smart Footy Kick', level:3, ball:true, smart:true, tag:'Balance plus kick data from the smart ball',
+             what:'The same three stages with the NXTPlay smart footy. The ball records the exact moment of contact and rates the kick, so you can see how your balance affects your kicking.',
+             tip:'Prototype note: ball pairing isn\'t built yet. Use "Try with fake sensors" to see how smart footy results will look.'}
+};
+const STAGES = {
+  balance:{name:'Balance Kick', short:'1. Stationary', desc:'Already balanced on your plant leg, kick without stepping. Pure balance through the kick.'},
+  step:   {name:'One-Step Kick', short:'2. One step', desc:'One step onto your plant leg, then kick. Adds a controlled landing.'},
+  run:    {name:'Kick on the Run', short:'3. On the run', desc:'Three-step run-in, plant and kick. The full game-day action.'}
+};
+const STAGE_ORDER = ['balance','step','run'];
+const KICK_CUE = 2.5;   // s after "Lift" when Balance Kick calls "Kick"
+const isKick = m => !!KICK_TYPES[m];
+function modeInfo(mode, stage){
+  if (!isKick(mode)) return MODES[mode];
+  const T = KICK_TYPES[mode], St = STAGES[stage], b = T.ball;
+  const kickTxt = (b ? 'Drop the ball and kick through it' : 'Kick through an imaginary ball at knee height') + (T.smart ? ': the ball records contact and rates the kick' : '');
+  const holdTxt = 'Hold your finish on the plant leg until the double beep';
+  const steps = {
+    balance:[`Balance on your plant leg, kicking leg pulled back${b?', footy held out in front':''}`, `On "Kick", ${kickTxt.charAt(0).toLowerCase()+kickTxt.slice(1)}, without putting your foot down`, holdTxt, b ? 'Collect the ball and get ready for the next rep' : 'Put your foot down and relax'],
+    step:   [`Stand one big step behind your spot${b?', holding the footy':''}`, 'On "Go", step forward onto your plant leg', kickTxt, holdTxt],
+    run:    [`Start three steps back${b?', holding the footy':''}`, 'On "Go", take three steps in and plant', kickTxt, holdTxt]
+  }[stage];
+  const measures = {
+    balance:['Balance before the kick: tilt and wobble','Recoil: how quickly you re-settle after the kick','Hip dip: whether your hips sink as you kick'],
+    step:['Settle: how quickly you lock in after landing','Hip dip: whether your hips sink after landing','Tilt and wobble while you hold the finish'],
+    run:['Settle: how quickly you lock in after the plant','Hip dip: whether your hips sink after the plant','Tilt and wobble while you hold the finish']
+  }[stage].concat(T.smart ? ['Your balance at the exact moment the ball is struck','Kick rating from the ball: good, okay or bad'] : b ? ['Not ball flight: the phone only measures your balance'] : []);
+  const mistakes = {
+    balance:['Putting your kicking foot down to reset before the kick','Leaning back as you kick','Swinging so hard you hop on your plant foot'],
+    step:['A soft knee that sinks after you land','A step that is too long, so you over-reach','Kicking before you have landed and settled'],
+    run:['Rushing the run-in so the plant is out of control','Falling away to the side after the kick','Letting the kicking leg drag you off balance']
+  }[stage].concat(b ? ['Turning to watch the ball instead of holding your finish'] : []);
+  return {
+    name:T.name, stageName:St.name, level:T.level, tag:T.tag, what:T.what, tip:T.tip, steps, measures, mistakes,
+    intro:`${T.name}, ${St.name}. ` + steps.slice(0,3).join('. ') + '.',
+    cue: stage==='balance' ? 'Get ready to lift, then kick when you hear Kick.' : stage==='step' ? 'Get ready: one step, plant, kick, and hold.' : 'Get ready: three steps, plant, kick, and hold.',
+    short:'Get ready.', go: stage==='balance' ? 'Lift' : 'Go',
+    hold: stage==='balance' ? 'Balance, kick on the cue, hold the finish' : stage==='step' ? 'One step, plant, kick, hold the finish' : 'Three steps, plant, kick, hold the finish'
+  };
+}
+function analysisKind(mode, stage){ return mode==='statue' ? 'statue' : (isKick(mode) && stage==='balance') ? 'balkick' : 'plant'; }
+function windowFor(mode, stage, level){
+  if (mode==='statue') return LEVELS[level].hold + 1.0;
+  if (mode==='plant') return 5;
+  return {balance:6.5, step:5.5, run:6.5}[stage] + (KICK_TYPES[mode].ball ? 0.5 : 0);
+}
+function demoPhase(mode, stage){ return mode==='statue' ? 'statue' : mode==='plant' ? 'plant' : {balance:'kickbal', step:'plant', run:'run'}[stage]; }
 
 // ---------- Stick-figure demo engine ----------
 const FIG = {T:46, S:46, TOR:58, UA:30, FA:28, HEAD:11, G:207, X0:190};
@@ -734,19 +817,40 @@ const LOADED = P({g:'P', pH:4, pK:12, kH:-28, kK:85, lean:6, aP:60, aK:-35});
 const STRIDE_A = x => P({x, g:'P', pH:-12, pK:5, kH:22, kK:25, lean:8, aP:-25, aK:25});
 const STRIDE_B = x => P({x, g:'K', pH:22, pK:25, kH:-12, kK:5, lean:8, aP:25, aK:-25});
 const FINISH = P({x:0, g:'P', pH:0, pK:8, kH:85, kK:0, lean:-14, aP:35, aK:-60});
-function kickFrames(smart){
-  const H = {aP:40, aK:40, bo:1, smart};
-  return [
-    {t:0, p:P({x:-150, ...H}), c:0, hold:1}, {t:1.4, p:P({x:-150, ...H}), c:0, hold:1},
-    {t:1.9, p:{...STRIDE_B(-125), ...H}, c:1, hold:1}, {t:2.4, p:{...STRIDE_A(-92), ...H}, c:1, hold:1}, {t:2.9, p:{...STRIDE_B(-58), ...H}, c:1, hold:1},
-    {t:3.4, p:P({x:-10, g:'P', pH:14, pK:18, kH:-38, kK:90, lean:10, aP:45, aK:45, ...H}), c:2, hold:1},
-    {t:3.65, p:P({x:-6, g:'P', pH:10, pK:14, kH:-10, kK:60, lean:6, aP:50, aK:-20, bx:250, by:150, bo:1, smart}), c:2},
-    {t:3.85, p:P({x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45, bx:256, by:168, bo:1, smart, flash:smart}), c:2},
-    {t:4.35, p:{...FINISH, bx:340, by:60, bo:1, smart, flash:smart}, c:3},
-    {t:4.9, p:{...FINISH, wob:1, bx:420, by:0, bo:0, smart}, c:3},
-    {t:7.8, p:{...FINISH, wob:1}, c:3}, {t:8.6, p:STAND, c:3}, {t:9.6, p:STAND, c:3}
-  ];
+function finalizeFrames(fr){ fr.forEach(f => { f.p = withHip(f.p); if (f.hold){ f.p.bx = FIG.X0 + f.p.x + 44; f.p.by = f.p.hy - 20; } }); return fr; }
+// Kick demo for any kick type x stage: an approach (or a balanced hold), then a shared kick-and-hold tail
+const _kickDemoCache = {};
+function kickDemo(type, stage){
+  const key = type + ':' + stage; if (_kickDemoCache[key]) return _kickDemoCache[key];
+  const ball = KICK_TYPES[type].ball, smart = KICK_TYPES[type].smart ? 1 : 0;
+  const H = ball ? {aP:40, aK:40, bo:1, smart} : {}, hold = ball ? 1 : 0;
+  const BACK = {x:-10, g:'P', pH:14, pK:18, kH:-38, kK:90, lean:10, ...(ball ? H : {aP:55, aK:-35, ball:1})};
+  let fr, kc;
+  if (stage === 'balance'){
+    kc = 1;
+    fr = [{t:0, p:P({...H}), c:0, hold}, {t:1.2, p:P({...H}), c:0, hold},
+          {t:2.0, p:P({...LOADED, x:-8, ...H}), c:0, hold}, {t:3.4, p:P({...LOADED, x:-8, ...H, wob:1, ...(ball?{}:{ball:1})}), c:0, hold}];
+  } else if (stage === 'step'){
+    kc = 2;
+    fr = [{t:0, p:P({x:-70, ...H}), c:0, hold}, {t:1.4, p:P({x:-70, ...H}), c:0, hold},
+          {t:2.1, p:P({x:-40, g:'K', pH:28, pK:8, kH:-12, kK:10, lean:6, aP:-20, aK:25, ...H}), c:1, hold},
+          {t:2.7, p:P(BACK), c:1, hold}];
+  } else {
+    kc = 2;
+    fr = [{t:0, p:P({x:-150, ...H}), c:0, hold}, {t:1.4, p:P({x:-150, ...H}), c:0, hold},
+          {t:1.9, p:{...STRIDE_B(-125), ...H}, c:1, hold}, {t:2.4, p:{...STRIDE_A(-92), ...H}, c:1, hold}, {t:2.9, p:{...STRIDE_B(-58), ...H}, c:1, hold},
+          {t:3.4, p:P(BACK), c:1, hold}];
+  }
+  const tb = fr[fr.length-1].t, bp = (bx, by, extra={}) => ball ? {bx, by, bo:1, smart, ...extra} : {ball:1};
+  fr.push(
+    {t:tb+0.25, p:P({x:-6, g:'P', pH:10, pK:14, kH:-10, kK:60, lean:6, aP:50, aK:-20, ...bp(248,150)}), c:kc},
+    {t:tb+0.45, p:P({...CONTACT, ...bp(256,168,{flash:smart})}), c:kc},
+    {t:tb+0.95, p:{...FINISH, ...(ball ? {bx:340, by:60, bo:1, smart, flash:smart} : {ball:0})}, c:kc+1},
+    {t:tb+1.5, p:{...FINISH, wob:1, ...(ball ? {bx:420, by:0, bo:0, smart} : {})}, c:kc+1},
+    {t:tb+4.4, p:{...FINISH, wob:1}, c:kc+1}, {t:tb+5.2, p:STAND, c:3}, {t:tb+6.2, p:STAND, c:3});
+  return (_kickDemoCache[key] = finalizeFrames(fr));
 }
+const demoFor = (mode, stage) => isKick(mode) ? kickDemo(mode, stage) : DEMOS[mode];
 const DEMOS = {
   statue: [
     {t:0, p:STAND, c:0}, {t:1.8, p:STAND, c:0},
@@ -760,22 +864,12 @@ const DEMOS = {
     {t:3.5, p:FINISH, c:2}, {t:4.1, p:{...FINISH, wob:1}, c:3},
     {t:7.6, p:{...FINISH, wob:1}, c:3}, {t:8.4, p:STAND, c:3}, {t:9.4, p:STAND, c:3}
   ],
-  shadow: [
-    {t:0, p:P({x:-150}), c:0}, {t:1.4, p:P({x:-150}), c:0},
-    {t:1.9, p:STRIDE_B(-125), c:1}, {t:2.4, p:STRIDE_A(-92), c:1}, {t:2.9, p:STRIDE_B(-58), c:1},
-    {t:3.5, p:P({x:-10, g:'P', pH:14, pK:18, kH:-38, kK:90, lean:10, aP:55, aK:-35, ball:1}), c:2},
-    {t:3.85, p:P({x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45, ball:1}), c:2},
-    {t:4.35, p:FINISH, c:3}, {t:4.9, p:{...FINISH, wob:1}, c:3},
-    {t:7.8, p:{...FINISH, wob:1}, c:3}, {t:8.6, p:STAND, c:3}, {t:9.6, p:STAND, c:3}
-  ],
-  realkick: kickFrames(0),
-  smartkick: kickFrames(1),
   intro: [
     {t:0, p:STAND, c:0}, {t:1.6, p:STAND, c:0}, {t:2.4, p:LOADED, c:1},
     {t:3.0, p:{...LOADED, wob:1}, c:1}, {t:6.0, p:{...LOADED, wob:1}, c:1}, {t:6.8, p:STAND, c:0}, {t:7.6, p:STAND, c:0}
   ]
 };
-Object.values(DEMOS).forEach(fr => fr.forEach(f => { f.p = withHip(f.p); if (f.hold){ f.p.bx = FIG.X0 + f.p.x + 44; f.p.by = f.p.hy - 20; } }));
+Object.values(DEMOS).forEach(finalizeFrames);
 function poseAt(frames, t){
   const end = frames[frames.length-1].t; t = t % end;
   let i = 0; while (i < frames.length-2 && frames[i+1].t <= t) i++;
@@ -812,10 +906,15 @@ const CONTACT = {x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45};
 const THUMB = {statue: LOADED, plant: FINISH, shadow: P({...CONTACT, ball:1}), realkick: P({...CONTACT, bx:256, by:168, bo:1}), smartkick: P({...CONTACT, bx:256, by:168, bo:1, smart:1})};
 function renderModes(){
   const wrap = $('modeCards');
-  wrap.innerHTML = Object.entries(MODES).map(([k,m]) => {
-    const on = S.mode === k;
+  const keys = ['statue','plant','shadow','realkick','smartkick'];
+  wrap.innerHTML = keys.map(k => {
+    const on = S.mode === k, m = modeInfo(k, S.stage), kick = isKick(k);
+    const stagePick = kick && on ? `<h3>Pick a stage</h3><div class="seg stage-seg">${STAGE_ORDER.map(st =>
+        `<button data-stage="${st}" class="${S.stage===st?'on':''}">${STAGES[st].short}</button>`).join('')}</div>
+        <p class="note" style="font-size:13px;margin:8px 0 12px"><b style="color:var(--ink)">${STAGES[S.stage].name}:</b> ${STAGES[S.stage].desc} ${stageLockNote(k, S.stage)}</p>` : '';
     const body = on ? `<div class="mode-body">
         <p style="font-size:15px;line-height:1.5;margin:0 0 12px">${m.what}</p>
+        ${stagePick}
         <div class="player"></div>
         <h3>How to do it</h3><ol class="steps">${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol>
         <h3>What the app measures</h3><ul class="plain">${m.measures.map(s=>`<li>${s}</li>`).join('')}</ul>
@@ -825,14 +924,19 @@ function renderModes(){
     return `<div class="mode-card ${on?'on':''}" data-mode="${k}">
       <div class="mode-head">${staticFigure(THUMB[k], '90 50 220 165', {thumb:true})}
         <div><b>${m.name}</b><span class="badge">Level ${m.level}+</span><div class="note" style="font-size:14px">${m.tag}</div>
+        ${kick ? '<div class="note">3 stages: stationary, one step, on the run</div>' : ''}
         ${on ? '' : '<div class="note">Tap to see how it works</div>'}</div></div>${body}</div>`;
-  }).join('');
-  wrap.querySelectorAll('.mode-card').forEach(c => c.addEventListener('click', e => {
-    if (c.dataset.mode === S.mode) return; S.mode = c.dataset.mode; renderModes(); syncSeg();
-    c.scrollIntoView && setTimeout(()=>wrap.querySelector('.mode-card.on').scrollIntoView({behavior:'smooth', block:'start'}), 30);
+  }).join('') + `<div class="mode-card" style="cursor:default;opacity:.8">
+      <div class="mode-head"><div><b>Balance Kicking Drill</b><span class="badge">Coming later</span>
+      <div class="note" style="font-size:14px">Kick at a target on your own, or kick back and forth with a partner while you both stay balanced on your plant leg. Unlocks once Balance Kick is passing.</div></div></div></div>`;
+  wrap.querySelectorAll('.mode-card[data-mode]').forEach(c => c.addEventListener('click', e => {
+    const sb = e.target.closest('[data-stage]');
+    if (sb){ S.stage = sb.dataset.stage; renderModes(); syncSeg(); renderProgress(); return; }
+    if (c.dataset.mode === S.mode) return; S.mode = c.dataset.mode; renderModes(); syncSeg(); renderProgress();
+    setTimeout(()=>wrap.querySelector('.mode-card.on').scrollIntoView({behavior:'smooth', block:'start'}), 30);
   }));
   const on = wrap.querySelector('.mode-card.on');
-  makePlayer(on.querySelector('.player'), DEMOS[S.mode], MODES[S.mode].steps, on.querySelector('ol.steps'));
+  makePlayer(on.querySelector('.player'), demoFor(S.mode, S.stage), modeInfo(S.mode, S.stage).steps, on.querySelector('ol.steps'));
 }
 
 // ---------- First-time walkthrough ----------
@@ -865,10 +969,11 @@ const ONB = [
     <ol class="steps">
       <li><b>Statue</b>: balance on your plant leg and hold still</li>
       <li><b>Plant &amp; Hold</b>: step into a firm plant and freeze</li>
-      <li><b>Shadow Kick</b>: run in, kick an imaginary ball, hold your finish</li>
+      <li><b>Shadow Kick</b>: kick an imaginary ball and hold your finish</li>
       <li><b>Real Kick</b>: the same with any footy</li>
       <li><b>Smart Footy Kick</b>: kick the NXTPlay smart footy and see how your balance affects each kick</li>
     </ol>
+    <p>Each kick mode has three stages: a <b>Balance Kick</b> (stationary, already on your plant leg), a <b>One-Step Kick</b>, then a <b>Kick on the Run</b>.</p>
     <p>Pass 8 of your last 10 reps and the next level unlocks automatically. Each mode has a demo you can watch before you start.</p>
     <p><b>New? Start with Statue.</b></p>`
 ];
@@ -896,13 +1001,13 @@ $('phoneBtn').onclick = () => openOnb(1);
 // ---------- UI wiring ----------
 function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); } if (id==='live') $('liveTip').textContent=''; }
 function syncSeg(){
-  document.querySelectorAll('.seg').forEach(seg => { const k=seg.dataset.key;
+  document.querySelectorAll('.seg[data-key]').forEach(seg => { const k=seg.dataset.key;
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[k])===b.dataset.v)); });
   const L = LEVELS[S.level];
   $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '.') + ' In the full game each mode unlocks at its level; all modes are open here for testing.';
   const plantSide = S.foot==='R' ? 'left' : 'right';
   $('plantNote').textContent = `Your plant leg is your ${plantSide} leg, so tuck the phone into your waistband on your ${plantSide} hip.`;
-  $('startBtn').textContent = `Start ${MODES[S.mode].name}`;
+  const I = modeInfo(S.mode, S.stage); $('startBtn').textContent = `Start ${I.name}${I.stageName ? ': ' + I.stageName : ''}`;
   $('guideChk').checked = S.guide;
 }
 $('guideChk').onchange = e => { S.guide = e.target.checked; };
