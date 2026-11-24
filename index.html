@@ -65,52 +65,80 @@
   .plantnote{font-size:13px;color:var(--acc);margin-top:6px}
   .toggle{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:14px}
   .toggle input{width:22px;height:22px;accent-color:var(--acc)}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px}
+  .topbar .sub{margin:2px 0 0}
+  .iconbar{display:flex;gap:4px}
+  .icon-btn{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:0;color:var(--ink);padding:4px 6px;min-width:52px;cursor:pointer}
+  .icon-btn svg{width:30px;height:30px;padding:6px;border-radius:50%;background:var(--card);border:1px solid var(--line);fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;box-sizing:content-box}
+  .icon-btn span{font-size:10.5px;color:var(--quiet);white-space:nowrap}
+  .icon-btn.on svg{border-color:var(--acc);color:var(--acc)}
+  .footbar{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .footbar b{font-size:16px}
+  .swap-btn{display:flex;align-items:center;gap:6px;background:rgba(47,191,113,.12);border:1px solid var(--acc);color:var(--ink);border-radius:99px;padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .swap-btn svg{width:18px;height:18px;fill:none;stroke:var(--acc);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+  details.card summary{list-style:none;display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:600}
+  details.card summary::-webkit-details-marker{display:none}
+  details.card summary .edit{font-size:13px;color:var(--acc);font-weight:500}
+  details.card[open] summary .edit{display:none}
+  details.more{margin-top:12px} details.more summary{cursor:pointer;color:var(--acc);font-size:14px;font-weight:600}
+  .flash{animation:flash .6s}
+  @keyframes flash{0%{background:rgba(47,191,113,.35)}100%{background:var(--card)}}
   .hidden-empty:empty{display:none}
   #liveTip{text-align:center;font-size:15px;color:var(--quiet);margin-top:4px;min-height:20px}
 </style>
 </head>
 <body>
 
-<h1>Plant Leg Balance</h1>
-<p class="sub">NXTPlay Smart Footy prototype for testing the sensor mechanic. Not the production app.</p>
+<header class="topbar">
+  <div><h1>Plant Leg Balance</h1><div class="sub">NXTPlay Smart Footy prototype</div></div>
+  <nav class="iconbar" id="iconbar">
+    <button class="icon-btn" id="howBtn" aria-label="How to play"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 1 1 3.9 2.6c-.8.4-1.2 1-1.2 1.9v.6"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg><span>How to play</span></button>
+    <button class="icon-btn" id="phoneBtn" aria-label="Where does the phone go?"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 18.5h3"/></svg><span>Phone</span></button>
+    <button class="icon-btn" id="profileBtn" aria-label="About you"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/></svg><span>About you</span></button>
+  </nav>
+</header>
 
 <!-- SETUP -->
 <section id="setup">
-  <div class="row" style="margin-bottom:12px">
-    <button class="btn ghost small" id="howBtn" style="margin-top:0">How to play</button>
-    <button class="btn ghost small" id="phoneBtn" style="margin-top:0">Where does the phone go?</button>
-  </div>
-  <div class="card">
+  <!-- About you: shown until the player has made their choices, then reopened from the profile icon -->
+  <div class="card" id="aboutCard">
     <h2>About you</h2>
     <label>Which foot do you kick with?</label>
     <div class="seg" data-key="foot"><button data-v="R" class="on">Right foot</button><button data-v="L">Left foot</button></div>
-    <div class="plantnote" id="plantNote"></div>
     <label>Where is the phone tucked into your waistband?</label>
     <div class="seg" data-key="place"><button data-v="side" class="on">Side of hip, screen out</button><button data-v="front">Front of hip</button></div>
     <label>Age group (changes the coaching tips)</label>
     <div class="seg" data-key="age"><button data-v="junior">8 to 12</button><button data-v="youth">13 to 17</button><button data-v="senior" class="on">18+</button></div>
+    <button class="btn small" id="aboutDone">Done</button>
   </div>
 
-  <h2 style="margin:16px 2px 8px">Choose a mode</h2>
+  <!-- Always-visible foot swap, so players train both feet -->
+  <div class="footbar">
+    <div><div class="note" style="margin:0">Kicking foot</div><b id="footLabel">Right foot</b>
+      <div class="plantnote" id="plantNote" style="margin-top:2px"></div></div>
+    <button class="swap-btn" id="swapFoot" aria-label="Swap kicking foot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg><span>Swap foot</span></button>
+  </div>
+
+  <h2 style="margin:18px 2px 8px">Choose a mode</h2>
   <div id="modeCards"></div>
 
-  <div class="card">
-    <h2>Level and reps</h2>
+  <details class="card" id="levelCard">
+    <summary><span id="levelSummary">Level 1 · 5 reps</span><span class="edit">Change</span></summary>
     <label>Level</label>
     <div class="seg" data-key="level"><button data-v="1" class="on">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
     <p class="note" id="levelInfo"></p>
     <label>Reps per set</label>
     <div class="seg" data-key="reps"><button data-v="3">3</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div>
     <label class="toggle"><input type="checkbox" id="guideChk" checked> Talk me through each rep (best for beginners)</label>
-    <div id="progress" class="note" style="margin-top:10px"></div>
-  </div>
+  </details>
+  <div id="progress" class="note" style="margin:2px 4px 0"></div>
   <button class="btn" id="startBtn">Start set</button>
   <div class="row">
     <button class="btn ghost small" id="fitBtn">Check phone fit</button>
     <button class="btn ghost small" id="demoBtn">Try with fake sensors</button>
   </div>
-  <div id="awakeInfo" class="card note" style="margin-top:12px;font-size:13px"></div>
-  <div id="voiceInfo" class="note" style="margin-top:10px;text-align:center"></div>
+  <div id="awakeInfo" class="note" style="margin-top:10px;text-align:center"></div>
+  <div id="voiceInfo" class="note" style="margin-top:6px;text-align:center"></div>
   <div id="sensorWarn" class="card warnbox hidden" style="margin-top:12px"></div>
 </section>
 
@@ -450,7 +478,7 @@ const LOCK_HELP = `<details id="lockHelp"><summary><b>Phone keeps locking?</b></
   <li>Keep this page open on screen: switching apps or locking the phone pauses the sensors.</li></ul></details>`;
 function renderAwakeInfo(){
   const el = $('awakeInfo'); if (!el) return;
-  el.innerHTML = ('wakeLock' in navigator ? 'The screen stays on automatically while you train.' : '<b style="color:var(--warn)">This browser can\'t keep the screen on by itself.</b> Set Auto-Lock to Never before you start.') + LOCK_HELP;
+  el.innerHTML = 'wakeLock' in navigator ? '' : '<span style="color:var(--warn)">This browser can\'t keep the screen on by itself. Set Auto-Lock to Never before you start (see Phone, top right).</span>';
 }
 
 // ---------- Demo sensor generator ----------
@@ -1083,9 +1111,10 @@ function renderModes(){
         ${stagePick}
         <div class="player"></div>
         <h3>How to do it</h3><ol class="steps">${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol>
+        <details class="more"><summary>More about this mode</summary>
         <h3>What the app measures</h3><ul class="plain">${m.measures.map(s=>`<li>${s}</li>`).join('')}</ul>
         <h3>Common mistakes</h3><ul class="plain">${m.mistakes.map(s=>`<li>${s}</li>`).join('')}</ul>
-        <div class="tip"><b>Tip:</b> ${m.tip}</div>
+        <div class="tip"><b>Tip:</b> ${m.tip}</div></details>
       </div>` : '';
     return `<div class="mode-card ${on?'on':''}" data-mode="${k}">
       <div class="mode-head">${staticFigure(THUMB[k], '90 50 220 165', {thumb:true})}
@@ -1121,7 +1150,7 @@ const ONB = [
       <li>A firm waistband or compression shorts work best. A loose one lets the phone bounce</li>
       <li>Side buttons pointing up or away from your body, so they don't get pressed and lock the phone</li>
       <li>Use "Check phone fit" to test it before you start</li>
-    </ul>`,
+    </ul><div style="margin-top:10px">${LOCK_HELP}</div>`,
   () => `<h2>Listen, don't look</h2>
     <p>Your phone is on your leg, so the game talks to you. Turn the volume up.</p>
     <ul class="plain">
@@ -1144,13 +1173,15 @@ const ONB = [
     <p>Pass 8 of your last 10 reps and the next level unlocks automatically. Each mode has a demo you can watch before you start.</p>
     <p><b>New? Start with Statue.</b></p>`
 ];
-function openOnb(i=0){ onbI = i; $('onb').classList.remove('hidden'); renderOnb(); }
+let onbSingle = false;
+function openOnb(i=0, single=false){ onbI = i; onbSingle = single; $('onb').classList.remove('hidden'); renderOnb(); }
 function closeOnb(){ $('onb').classList.add('hidden'); $('onbBody').innerHTML=''; try{ localStorage.setItem('nxtplay-plb-onb','1'); }catch(e){} show('setup'); }
 function renderOnb(){
   $('onbBody').innerHTML = ONB[onbI]();
   $('onbDots').innerHTML = ONB.map((_,i)=>`<i class="${i===onbI?'on':''}"></i>`).join('');
-  $('onbBack').style.visibility = onbI ? 'visible' : 'hidden';
-  $('onbNext').textContent = onbI === ONB.length-1 ? "Let's go" : 'Next';
+  $('onbBack').style.visibility = (onbI && !onbSingle) ? 'visible' : 'hidden';
+  $('onbDots').style.display = onbSingle ? 'none' : ''; $('onbSkip').style.display = onbSingle ? 'none' : '';
+  $('onbNext').textContent = onbSingle ? 'Close' : onbI === ONB.length-1 ? "Let's go" : 'Next';
   const pl = $('onbBody').querySelector('.player');
   if (pl) makePlayer(pl, DEMOS.intro, ['Standing on both feet', 'Kicking leg back: now the green plant leg holds you up']);
   const hb = $('hearBtn');
@@ -1159,25 +1190,37 @@ function renderOnb(){
     beep(1200,150); await sleep(80); beep(1200,150); await sleep(600);
     beep(220,400); await sleep(700); await say('Score 85. Elite rep. Rock-solid plant leg, keep it up.'); hb.disabled = false; };
 }
-$('onbNext').onclick = () => { if (onbI < ONB.length-1){ onbI++; renderOnb(); } else closeOnb(); };
+$('onbNext').onclick = () => { if (!onbSingle && onbI < ONB.length-1){ onbI++; renderOnb(); } else closeOnb(); };
 $('onbBack').onclick = () => { if (onbI > 0){ onbI--; renderOnb(); } };
 $('onbSkip').onclick = closeOnb;
 $('howBtn').onclick = () => openOnb(0);
-$('phoneBtn').onclick = () => openOnb(1);
+$('phoneBtn').onclick = () => openOnb(1, true);
 
 // ---------- UI wiring ----------
-function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); renderAwakeInfo(); } if (id==='live') $('liveTip').textContent=''; }
+function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); $('iconbar').style.visibility = id==='setup' ? 'visible' : 'hidden'; if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); renderAwakeInfo(); } if (id==='live') $('liveTip').textContent=''; }
 function syncSeg(){
   document.querySelectorAll('.seg[data-key]').forEach(seg => { const k=seg.dataset.key;
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[k])===b.dataset.v)); });
   const L = LEVELS[S.level];
   $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '.') + ' In the full game each mode unlocks at its level; all modes are open here for testing.';
   const plantSide = S.foot==='R' ? 'left' : 'right';
-  $('plantNote').textContent = `Your plant leg is your ${plantSide} leg, so tuck the phone into your waistband on your ${plantSide} hip.`;
+  $('plantNote').textContent = `Plant leg: ${plantSide}. Phone on your ${plantSide} hip.`;
+  $('footLabel').textContent = S.foot==='R' ? 'Right foot' : 'Left foot';
+  $('levelSummary').textContent = `Level ${S.level}: ${L.name} · ${S.reps} reps${S.guide ? ' · talk-through on' : ''}`;
   const I = modeInfo(S.mode, S.stage); $('startBtn').textContent = `Start ${I.name}${I.stageName ? ': ' + I.stageName : ''}`;
   $('guideChk').checked = S.guide;
 }
-$('guideChk').onchange = e => { S.guide = e.target.checked; };
+$('guideChk').onchange = e => { S.guide = e.target.checked; syncSeg(); };
+// ---------- Profile (About you) ----------
+function saveProfile(){ try { localStorage.setItem('nxtplay-plb-profile', JSON.stringify({foot:S.foot, place:S.place, age:S.age})); } catch(e){} }
+function loadProfile(){ try { const p = JSON.parse(localStorage.getItem('nxtplay-plb-profile')||'null'); if (p){ Object.assign(S, p); return true; } } catch(e){} return false; }
+function setAboutOpen(open){ $('aboutCard').classList.toggle('hidden', !open); $('profileBtn').classList.toggle('on', open); document.querySelector('.footbar').classList.toggle('hidden', open); }
+$('aboutDone').onclick = () => { saveProfile(); setAboutOpen(false); };
+$('profileBtn').onclick = () => { const open = $('aboutCard').classList.contains('hidden'); setAboutOpen(open); if (open) $('aboutCard').scrollIntoView({behavior:'smooth', block:'start'}); };
+$('swapFoot').onclick = () => {
+  S.foot = S.foot==='R' ? 'L' : 'R'; saveProfile(); syncSeg();
+  const fb = document.querySelector('.footbar'); fb.classList.remove('flash'); void fb.offsetWidth; fb.classList.add('flash');
+};
 document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return; const k = seg.dataset.key;
   S[k] = ['level','reps'].includes(k) ? +b.dataset.v : b.dataset.v; syncSeg(); renderProgress();
@@ -1196,7 +1239,9 @@ $('dlBtn').onclick = () => {
   a.href = URL.createObjectURL(b); a.download = `plb_rep${selRep+1}_${S.mode}.csv`; document.body.appendChild(a); a.click(); a.remove();
 };
 try { const lv = +localStorage.getItem('nxtplay-plb-level'); if (lv>=1 && lv<=5) S.level = lv; } catch(e){}
+const hasProfile = loadProfile();
 show('setup');
+setAboutOpen(!hasProfile);
 loadVoiceManifest();
 let seenOnb = false; try { seenOnb = !!localStorage.getItem('nxtplay-plb-onb'); } catch(e){}
 if (!seenOnb) openOnb(0);
