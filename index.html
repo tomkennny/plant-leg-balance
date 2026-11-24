@@ -260,6 +260,8 @@ let audio = null, wakeLock = null, demoTimer = null, demoState = null;
 // ---------- Helpers ----------
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// a pause that ends early when Stop is tapped
+const pause = async ms => { const end = Date.now() + ms; while (Date.now() < end && !stopReq) await sleep(Math.min(100, end - Date.now())); };
 const D = Math.PI/180;
 const norm = v => { const m = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/m, v[1]/m, v[2]/m]; };
 const dot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
@@ -346,23 +348,56 @@ async function loadVoiceManifest(){
 }
 function pickVoice(){ VOICE = voiceChoice === 'device' ? null : (PACKS[voiceChoice] || Object.values(PACKS)[0] || null); }
 const b64ToBuf = b => { const bin = atob(b), u = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i); return u.buffer; };
-function loadVoiceBuffers(){
-  const V = VOICE; if (!V || !audio) return null;
-  if (!V._loading) V._loading = Promise.all([...V.ids].map(async id => {
-    try { const ab = V.bundle ? b64ToBuf(V.bundle[id]) : await (await fetch(`voice/${id}.${V.ext}`)).arrayBuffer();
-          V.bufs[id] = await new Promise((ok, no) => audio.decodeAudioData(ab, ok, no)); } catch(e){}
-  }));
-  return V._loading;
+// Clips are decoded on demand (one sentence at a time) and cached, with a quiet background prefetch one clip at a time.
+// Decoding hundreds of clips at once can stall a phone, so that never happens. Every wait has a timeout,
+// and Stop interrupts whatever is playing.
+let currentSrc = null;
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+const halted = () => stopReq && (running || fitRunning);
+function getBuf(V, id){
+  if (V.bufs[id]) return Promise.resolve(V.bufs[id]);
+  if (!V.ids.has(id) || (V.bad && V.bad[id])) return Promise.resolve(null);
+  V.pending = V.pending || {};
+  if (!V.pending[id]) V.pending[id] = (async () => {
+    try {
+      const ab = V.bundle ? b64ToBuf(V.bundle[id]) : await withTimeout(fetch(`voice/${id}.${V.ext}`).then(r => r.arrayBuffer()), 4000);
+      const buf = await withTimeout(new Promise((ok, no) => audio.decodeAudioData(ab, ok, no)), 4000);
+      V.bufs[id] = buf; return buf;
+    } catch(e){ (V.bad = V.bad || {})[id] = 1; return null; }   // a broken or empty clip falls back to the phone voice
+    finally { delete V.pending[id]; }
+  })();
+  return V.pending[id];
 }
-function playBuf(b){ try { if (audio.state !== 'running') audio.resume(); } catch(e){} return new Promise(res => { try { const src = audio.createBufferSource(); src.buffer = b; src.connect(audio.destination); src.onended = res; src.start(); } catch(e){ res(); } }); }
+function loadVoiceBuffers(){   // background prefetch, one clip at a time, stops if the voice changes
+  const V = VOICE; if (!V || !audio || V._prefetching) return;
+  V._prefetching = true;
+  (async () => { for (const id of V.ids){ if (VOICE !== V) break; await getBuf(V, id); await sleep(15); } V._prefetching = false; })();
+}
+function playBuf(b){
+  try { if (audio.state !== 'running') audio.resume(); } catch(e){}
+  return new Promise(res => {
+    let done = false; const fin = () => { if (!done){ done = true; if (currentSrc === src) currentSrc = null; res(); } };
+    let src;
+    try { src = audio.createBufferSource(); src.buffer = b; src.connect(audio.destination); src.onended = fin; src.start(); currentSrc = src; }
+    catch(e){ return fin(); }
+    setTimeout(fin, (b.duration || 2) * 1000 + 400);   // never wait forever for 'ended'
+  });
+}
 async function say(text){
   const V = VOICE;
+  if (halted()) return;
   if (!(V && audio)) return sayDevice(text);
-  await loadVoiceBuffers();
   for (const sn of sentences(text)){
-    const ids = clipOptions(sn).find(opt => opt.every(id => V.bufs[id]));
-    if (ids){ for (const id of ids) await playBuf(V.bufs[id]); await sleep(120); }
-    else await sayDevice(sn);   // a line with no clip falls back to the device voice
+    if (halted()) return;
+    let played = false;
+    for (const opt of clipOptions(sn)){
+      if (!opt.every(id => V.ids.has(id))) continue;
+      const bufs = await Promise.all(opt.map(id => getBuf(V, id)));
+      if (halted()) return;
+      if (bufs.every(Boolean)){ for (const bf of bufs){ if (halted()) return; await playBuf(bf); } played = true; break; }
+    }
+    if (!played) await sayDevice(sn);   // a line with no working clip uses the phone voice
+    await sleep(120);
   }
 }
 function renderVoiceInfo(){
@@ -695,7 +730,7 @@ function cueCore(r){
 
 // ---------- Session flow ----------
 async function countdown(n, label){
-  for (let i=n;i>0;i--){ if(stopReq) return; $('liveBig').textContent=i; beep(660,120); await sleep(1000); }
+  for (let i=n;i>0;i--){ if(stopReq) return; $('liveBig').textContent=i; beep(660,120); await pause(1000); }
   $('liveBig').textContent = label; beep(990,300); buzz(200);
 }
 async function recordRep(mode, level, stage){
@@ -725,11 +760,11 @@ async function calibrate(){
   $('liveStatus').textContent = `Tuck the phone into your waistband on your ${side} hip, then stand tall on both feet.`;
   $('liveTip').textContent = 'No need to move yet: this just records how you stand.'; $('liveBig').textContent = '…';
   await say(`Tuck the phone into your waistband on your ${side} hip, then stand tall on both feet.`);
-  for (let k = 4; k > 0 && !stopReq; k--){ $('liveBig').textContent = k; await sleep(1000); }   // time to tuck it in, silently
+  for (let k = 4; k > 0 && !stopReq; k--){ $('liveBig').textContent = k; await pause(1000); }   // time to tuck it in, silently
   if (stopReq) return false;
   $('liveBig').textContent = 'Hold still'; await say('Hold still.');
   const buf = []; rec = {t0:performance.now(), samples:buf, mode:'cal'};
-  await sleep(3000); rec = null;
+  await pause(3000); rec = null;
   if (stopReq) return false;
   $('liveBig').textContent = '✓'; $('liveTip').textContent = ''; await say('Ready.');
   if (buf.length < 30){ $('liveStatus').textContent='Not enough sensor data.'; await say('Not enough sensor data.'); return false; }
@@ -768,7 +803,7 @@ async function runSet(){
     const cue = cueFor(res); $('liveStatus').textContent = cue;
     $('liveBig').textContent = res.error ? '!' : Math.round(res.score);
     await say((res.error ? '' : `Score ${Math.round(res.score)}. `) + cue);
-    if (i < S.reps) { $('liveBig').textContent='Rest'; const fetch = isKick(mode) && KICK_TYPES[mode].ball; $('liveTip').textContent = fetch ? 'Grab your footy and get back to your start spot' : ''; await sleep(fetch ? 8000 : 3000); }
+    if (i < S.reps) { $('liveBig').textContent='Rest'; const fetch = isKick(mode) && KICK_TYPES[mode].ball; $('liveTip').textContent = fetch ? 'Grab your footy and get back to your start spot' : ''; await pause(fetch ? 8000 : 3000); }
   }
   finish();
 }
@@ -1352,7 +1387,7 @@ document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e
 $('startBtn').onclick = () => { demo = false; requestMotionPermission(); initAudio(); $('sensorWarn').classList.add('hidden'); runSet(); };
 $('demoBtn').onclick = () => { demo = true; initAudio(); $('sensorWarn').classList.add('hidden'); runSet(); };
 $('fitBtn').onclick = () => { demo = false; requestMotionPermission(); initAudio(); $('sensorWarn').classList.add('hidden'); fitCheck(); };
-$('stopBtn').onclick = () => { stopReq = true; try{speechSynthesis.cancel();}catch(e){} };
+$('stopBtn').onclick = () => { stopReq = true; try { speechSynthesis.cancel(); } catch(e){} try { currentSrc && currentSrc.stop(); } catch(e){} };
 $('againBtn').onclick = () => { selRep = 0; show('setup'); };
 $('copyBtn').onclick = async () => {
   try { await navigator.clipboard.writeText(repCSV(setResults[selRep])); $('copyMsg').textContent='Copied to clipboard.'; }
