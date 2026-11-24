@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NXTPlay Plant Leg Balance: Prototype</title>
+<title>NXTPlay Balanced Kicking: Prototype</title>
 <style>
   :root{--bg:#0f1720;--card:#18222e;--line:#2a3746;--ink:#eef3f8;--quiet:#9aabbd;--acc:#2fbf71;--warn:#f2b632;--bad:#ef5b5b;--blue:#4aa3ff}
   *{box-sizing:border-box}
@@ -52,7 +52,6 @@
   .legend{font-size:12px;color:var(--quiet);margin-top:6px}
   .legend b{color:var(--acc)} .legend em{color:var(--blue);font-style:normal;font-weight:600}
   .mode-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;cursor:pointer}
-  .mode-card.on{border-color:var(--acc);cursor:default}
   .mode-head{display:flex;gap:12px;align-items:center}
   .mode-head svg{width:76px;height:56px;flex:none;background:#111b25;border-radius:8px}
   .mode-head b{font-size:17px}
@@ -81,6 +80,25 @@
   details.card summary .edit{font-size:13px;color:var(--acc);font-weight:500}
   details.card[open] summary .edit{display:none}
   details.more{margin-top:12px} details.more summary{cursor:pointer;color:var(--acc);font-size:14px;font-weight:600}
+  .mode-card.on{border-color:var(--acc);cursor:pointer}
+  .mode-card .chev{font-size:22px;color:var(--quiet);align-self:center;padding:0 4px}
+  .mode-card.open .chev{color:var(--acc)}
+  .badge.sel{color:var(--acc);border-color:var(--acc)}
+  .mode-card.soon{cursor:default;opacity:.8}
+  details.card summary .hide-lbl{display:none;font-size:13px;color:var(--acc);font-weight:500}
+  details.card[open] summary .hide-lbl{display:inline}
+  details.section{margin-top:18px}
+  details.section > summary{list-style:none;display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:4px 2px 10px}
+  details.section > summary::-webkit-details-marker{display:none}
+  details.section .sec-title{font-size:16px;font-weight:700}
+  details.section > summary .edit{font-size:13px;color:var(--acc)} details.section[open] > summary .edit{display:none}
+  details.section > summary .hide-lbl{display:none;font-size:13px;color:var(--acc)} details.section[open] > summary .hide-lbl{display:inline}
+  details.section[open] #modeSummary{display:none!important}
+  .mode-card.locked{opacity:.55;cursor:pointer} .mode-card.locked .mode-head svg.demo-svg{filter:grayscale(1)}
+  .mode-card.locked .lockmsg{color:var(--warn)}
+  svg.lock{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;vertical-align:-1px;margin-right:3px}
+  .seg button.locked{opacity:.45}
+  ul.sounds li{transition:color .2s} ul.sounds li.now{color:var(--acc)}
   .flash{animation:flash .6s}
   @keyframes flash{0%{background:rgba(47,191,113,.35)}100%{background:var(--card)}}
   .hidden-empty:empty{display:none}
@@ -90,7 +108,7 @@
 <body>
 
 <header class="topbar">
-  <div><h1>Plant Leg Balance</h1><div class="sub">NXTPlay Smart Footy prototype</div></div>
+  <div><h1>Balanced Kicking</h1><div class="sub">NXTPlay Smart Footy prototype</div></div>
   <nav class="iconbar" id="iconbar">
     <button class="icon-btn" id="howBtn" aria-label="How to play"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 1 1 3.9 2.6c-.8.4-1.2 1-1.2 1.9v.6"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg><span>How to play</span></button>
     <button class="icon-btn" id="phoneBtn" aria-label="Where does the phone go?"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 18.5h3"/></svg><span>Phone</span></button>
@@ -119,19 +137,22 @@
     <button class="swap-btn" id="swapFoot" aria-label="Swap kicking foot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg><span>Swap foot</span></button>
   </div>
 
-  <h2 style="margin:18px 2px 8px">Choose a mode</h2>
-  <div id="modeCards"></div>
-
-  <details class="card" id="levelCard">
-    <summary><span id="levelSummary">Level 1 · 5 reps</span><span class="edit">Change</span></summary>
+  <details class="card" id="levelCard" style="margin-top:12px">
+    <summary><span id="levelSummary">Level 1 · 5 reps</span><span class="edit">Change</span><span class="hide-lbl">Hide</span></summary>
     <label>Level</label>
     <div class="seg" data-key="level"><button data-v="1" class="on">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
     <p class="note" id="levelInfo"></p>
     <label>Reps per set</label>
     <div class="seg" data-key="reps"><button data-v="3">3</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div>
     <label class="toggle"><input type="checkbox" id="guideChk" checked> Talk me through each rep (best for beginners)</label>
+    <label class="toggle"><input type="checkbox" id="testAllChk"> Unlock everything (for testing)</label>
   </details>
-  <div id="progress" class="note" style="margin:2px 4px 0"></div>
+  <div id="progress" class="note" style="margin:-4px 4px 0"></div>
+  <details class="section" id="modeSection" open>
+    <summary><span><span class="sec-title">Choose a mode</span><span class="note" id="modeSummary" style="display:block;margin:0"></span></span><span class="edit">Change</span><span class="hide-lbl">Hide</span></summary>
+    <div id="modeCards"></div>
+  </details>
+
   <button class="btn" id="startBtn">Start set</button>
   <div class="row">
     <button class="btn ghost small" id="fitBtn">Check phone fit</button>
@@ -261,13 +282,19 @@ function subScore(v, edges){
 const zoneOf = (v, edges) => ZONE_NAMES[edges.findIndex(e => v < e) === -1 ? 4 : edges.findIndex(e => v < e)];
 
 // ---------- Audio / haptics ----------
+const SILENT_WAV = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+let silentEl = null;
 function initAudio(){
-  try { audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume(); } catch(e){}
+  // iPhone: Web Audio is muted by the ringer switch unless the page uses the "playback" audio session
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}
+  try { audio = audio || new (window.AudioContext||window.webkitAudioContext)(); if (audio.state !== 'running') audio.resume(); } catch(e){}
+  try { if (!silentEl){ silentEl = new Audio(SILENT_WAV); silentEl.setAttribute('playsinline',''); } silentEl.play().catch(()=>{}); } catch(e){}
   loadVoiceBuffers();
   try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch(e){}
 }
 function beep(freq=880, ms=150, vol=0.25){
   if(!audio) return;
+  try { if (audio.state !== 'running') audio.resume(); } catch(e){}
   try { const o=audio.createOscillator(), g=audio.createGain(); o.frequency.value=freq; g.gain.value=vol;
     o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime+ms/1000); } catch(e){}
 }
@@ -308,7 +335,7 @@ function loadVoiceBuffers(){
   }));
   return _voiceLoading;
 }
-function playBuf(b){ return new Promise(res => { try { const src = audio.createBufferSource(); src.buffer = b; src.connect(audio.destination); src.onended = res; src.start(); } catch(e){ res(); } }); }
+function playBuf(b){ try { if (audio.state !== 'running') audio.resume(); } catch(e){} return new Promise(res => { try { const src = audio.createBufferSource(); src.buffer = b; src.connect(audio.destination); src.onended = res; src.start(); } catch(e){ res(); } }); }
 async function say(text){
   if (!(VOICE && voiceOn && audio)) return sayDevice(text);
   await loadVoiceBuffers();
@@ -431,24 +458,36 @@ function liveDraw(u, rr){
   x.fillStyle='#9aabbd'; x.font='24px sans-serif'; x.textAlign='center';
   x.fillText('front-back', W/2, 18+4); x.fillText('side', W-40, W/2-8);
 }
+// iPhone only shows the "Allow motion" prompt if requestPermission() is called directly inside a tap, before
+// anything is awaited. So every Start / Fit check tap calls this first, synchronously, and later code awaits the result.
+let motionPerm = null;
+function requestMotionPermission(){
+  if (motionPerm) return motionPerm;
+  const DM = window.DeviceMotionEvent, DO = window.DeviceOrientationEvent;
+  if (DM && typeof DM.requestPermission === 'function'){
+    const pm = DM.requestPermission();
+    const po = (DO && typeof DO.requestPermission === 'function') ? DO.requestPermission().catch(() => 'denied') : Promise.resolve('granted');
+    motionPerm = Promise.all([pm, po]).then(([m]) => m === 'granted').catch(() => false);
+  } else motionPerm = Promise.resolve(true);   // Android and desktop: no prompt needed
+  return motionPerm;
+}
+const PERM_HELP = `<b>Motion access wasn't allowed</b>, so the app can't read your phone's movement.<ul class="plain" style="margin-top:6px">
+  <li>Tap the button again and choose <b>Allow</b> when your phone asks.</li>
+  <li>No prompt? If "Don't Allow" was tapped before, iPhone remembers it until Safari restarts: close this tab, swipe Safari away in the app switcher, reopen the page and tap the button again.</li>
+  <li>Still stuck: Settings &gt; Apps &gt; Safari &gt; Advanced &gt; Website Data (older iPhones: Settings &gt; Safari &gt; Advanced &gt; Website Data), remove this site, then reopen the page.</li></ul>`;
 async function requestSensors(){
   if (demo) return true;
-  try {
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-      const r = await DeviceMotionEvent.requestPermission(); if (r !== 'granted') throw new Error('Motion permission denied');
-    }
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
-      await DeviceOrientationEvent.requestPermission().catch(()=>{});
-    }
-  } catch(e){ showWarn('Motion access was refused. On iPhone: Settings > Safari > Motion & Orientation Access, then reload.'); return false; }
   if (!window.isSecureContext) { showWarn('This page must be opened over https:// for motion sensors to work.'); return false; }
+  const ok = await (motionPerm || requestMotionPermission());
+  if (!ok){ motionPerm = null; showWarnHTML(PERM_HELP); return false; }
   window.addEventListener('devicemotion', onMotion);
   window.addEventListener('deviceorientation', onOrient);
   await sleep(800);
-  if (hzCount === 0 && hz === 0){ showWarn('No motion data is arriving. Open this page on a phone over https://, or use Demo mode.'); return false; }
+  if (hzCount === 0 && hz === 0){ showWarn('No motion data is arriving. Open this page on a phone over https://, or use "Try with fake sensors".'); return false; }
   return true;
 }
 function showWarn(t){ const w=$('sensorWarn'); w.textContent=t; w.classList.remove('hidden'); }
+function showWarnHTML(h){ const w=$('sensorWarn'); w.innerHTML=h; w.classList.remove('hidden'); }
 // Keep the screen on while training: Screen Wake Lock where the browser has it (re-requested whenever the page
 // becomes visible again, because the browser drops it), otherwise a tiny silent looping video (works on older iPhones).
 let wakeWanted = false, wakeMode = 'off', noSleepVid = null, fitRunning = false, interruptedByLock = false;
@@ -730,13 +769,24 @@ function stageUnlocked(mode, stage){
 function stageLockNote(mode, stage){
   if (stageUnlocked(mode, stage)) return '';
   const prev = STAGES[STAGE_ORDER[STAGE_ORDER.indexOf(stage)-1]].name;
-  return `<span style="color:var(--warn)">In the full game this unlocks after 8 of 10 passing reps at ${prev} (open here for testing).</span>`;
+  return `<span style="color:var(--warn)">Normally unlocks after 8 of 10 passing reps at ${prev} (open now because testing mode is on).</span>`;
+}
+// ---------- Progression locks: levels, modes and kick stages open as the player progresses ----------
+const testAll = () => { try { return localStorage.getItem('nxtplay-plb-testall') === '1'; } catch(e){ return false; } };
+function maxLevel(){ let m = 1; try { m = Math.max(1, +localStorage.getItem('nxtplay-plb-maxlevel') || 1, +localStorage.getItem('nxtplay-plb-level') || 1); } catch(e){} return testAll() ? 5 : Math.min(5, m); }
+const modeLevel = k => (isKick(k) ? KICK_TYPES[k] : MODES[k]).level;
+const modeOpen = k => testAll() || modeLevel(k) <= maxLevel();
+const stageOpen = (k, st) => testAll() || stageUnlocked(k, st);
+function enforceLocks(){   // keep the current selection inside what's unlocked
+  if (S.level > maxLevel()) S.level = maxLevel();
+  if (!modeOpen(S.mode)){ S.mode = 'statue'; openMode = null; }
+  if (isKick(S.mode) && !stageOpen(S.mode, S.stage)) S.stage = [...STAGE_ORDER].reverse().find(st => stageOpen(S.mode, st)) || 'balance';
 }
 function checkUnlock(){
   const msgs = [], h = loadHistory();
   const lv = h['L'+S.level] || [];
   if (lv.length >= 10 && passesOf(lv) >= 8 && S.level < 5){
-    S.level++; try { localStorage.setItem('nxtplay-plb-level', S.level); } catch(e){}
+    S.level++; try { localStorage.setItem('nxtplay-plb-level', S.level); localStorage.setItem('nxtplay-plb-maxlevel', Math.max(S.level, +localStorage.getItem('nxtplay-plb-maxlevel') || 1)); } catch(e){}
     msgs.push(`Level ${S.level} unlocked: ${LEVELS[S.level].name}!`);
   }
   if (isKick(S.mode)){
@@ -899,10 +949,10 @@ const KICK_TYPES = {
   shadow:   {name:'Shadow Kick', level:3, ball:false, tag:'The kicking action, no ball needed',
              what:'Kick an imaginary ball and stay balanced through your finish. Learn the movement in three stages before adding a real footy.',
              tip:'Get each stage passing before you move on. Smooth beats fast.'},
-  realkick: {name:'Real Kick', level:3, ball:true, tag:'Kick a real footy, any ball',
+  realkick: {name:'Real Kick', level:4, ball:true, tag:'Kick a real footy, any ball',
              what:'The same three stages with any footy. The phone scores your plant leg. It can\'t see the ball, so watch where your kicks go too.',
              tip:'Kick into a net, against a wall, or to a partner so you are not chasing the ball. You get 8 seconds between reps to collect it.'},
-  smartkick:{name:'Smart Footy Kick', level:3, ball:true, smart:true, tag:'Balance plus kick data from the smart ball',
+  smartkick:{name:'Smart Footy Kick', level:4, ball:true, smart:true, tag:'Balance plus kick data from the smart ball',
              what:'The same three stages with the NXTPlay smart footy. The ball records the exact moment of contact and rates the kick, so you can see how your balance affects your kicking.',
              tip:'Prototype note: ball pairing isn\'t built yet. Use "Try with fake sensors" to see how smart footy results will look.'}
 };
@@ -1098,15 +1148,23 @@ function makePlayer(el, frames, captions, stepsEl){
 // ---------- Mode cards ----------
 const CONTACT = {x:-2, g:'P', pH:5, pK:10, kH:40, kK:5, lean:0, aP:45, aK:-45};
 const THUMB = {statue: LOADED, plant: FINISH, shadow: P({...CONTACT, ball:1}), realkick: P({...CONTACT, bx:256, by:168, bo:1}), smartkick: P({...CONTACT, bx:256, by:168, bo:1, smart:1})};
+let openMode = null;   // which mode card is expanded (none by default); S.mode is the selected one
+let lockMsgFor = null, stageMsg = '';
 function renderModes(){
   const wrap = $('modeCards');
   const keys = ['statue','plant','shadow','realkick','smartkick'];
   wrap.innerHTML = keys.map(k => {
-    const on = S.mode === k, m = modeInfo(k, S.stage), kick = isKick(k);
-    const stagePick = kick && on ? `<h3>Pick a stage</h3><div class="seg stage-seg">${STAGE_ORDER.map(st =>
-        `<button data-stage="${st}" class="${S.stage===st?'on':''}">${STAGES[st].short}</button>`).join('')}</div>
-        <p class="note" style="font-size:13px;margin:8px 0 12px"><b style="color:var(--ink)">${STAGES[S.stage].name}:</b> ${STAGES[S.stage].desc} ${stageLockNote(k, S.stage)}</p>` : '';
-    const body = on ? `<div class="mode-body">
+    const sel = S.mode === k, open = openMode === k, m = modeInfo(k, S.stage), kick = isKick(k), locked = !modeOpen(k);
+    if (locked) return `<div class="mode-card locked" data-mode="${k}">
+      <div class="mode-head">${staticFigure(THUMB[k], '90 50 220 165', {thumb:true})}
+        <div style="flex:1"><b>${m.name}</b><span class="badge"><svg class="lock" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Level ${m.level}</span>
+        <div class="note" style="font-size:14px">${m.tag}</div>
+        <div class="note lockmsg">${lockMsgFor === k ? `Reach Level ${m.level} to unlock: pass 8 of your last 10 reps at your current level.` : `Unlocks at Level ${m.level}`}</div></div></div></div>`;
+    const stagePick = kick && open ? `<h3>Pick a stage</h3><div class="seg stage-seg">${STAGE_ORDER.map(st =>
+        `<button data-stage="${st}" class="${S.stage===st?'on':''} ${stageOpen(k, st)?'':'locked'}">${stageOpen(k, st) ? '' : '<svg class="lock" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>'}${STAGES[st].short}</button>`).join('')}</div>
+        <p class="note" style="font-size:13px;margin:8px 0 12px"><b style="color:var(--ink)">${STAGES[S.stage].name}:</b> ${STAGES[S.stage].desc} ${testAll() ? stageLockNote(k, S.stage) : ''}</p>
+        ${stageMsg ? `<p class="note" style="color:var(--warn);margin:-4px 0 12px">${stageMsg}</p>` : ''}` : '';
+    const body = open ? `<div class="mode-body">
         <p style="font-size:15px;line-height:1.5;margin:0 0 12px">${m.what}</p>
         ${stagePick}
         <div class="player"></div>
@@ -1116,28 +1174,37 @@ function renderModes(){
         <h3>Common mistakes</h3><ul class="plain">${m.mistakes.map(s=>`<li>${s}</li>`).join('')}</ul>
         <div class="tip"><b>Tip:</b> ${m.tip}</div></details>
       </div>` : '';
-    return `<div class="mode-card ${on?'on':''}" data-mode="${k}">
+    const sub = sel && kick ? `<div class="note" style="color:var(--acc)">Stage: ${STAGES[S.stage].name}</div>` : kick ? '<div class="note">3 stages: stationary, one step, on the run</div>' : '';
+    return `<div class="mode-card ${sel?'on':''} ${open?'open':''}" data-mode="${k}">
       <div class="mode-head">${staticFigure(THUMB[k], '90 50 220 165', {thumb:true})}
-        <div><b>${m.name}</b><span class="badge">Level ${m.level}+</span><div class="note" style="font-size:14px">${m.tag}</div>
-        ${kick ? '<div class="note">3 stages: stationary, one step, on the run</div>' : ''}
-        ${on ? '' : '<div class="note">Tap to see how it works</div>'}</div></div>${body}</div>`;
-  }).join('') + `<div class="mode-card" style="cursor:default;opacity:.8">
+        <div style="flex:1"><b>${m.name}</b><span class="badge">Level ${m.level}+</span>${sel ? '<span class="badge sel">Selected</span>' : ''}
+        <div class="note" style="font-size:14px">${m.tag}</div>${sub}</div>
+        <span class="chev" aria-hidden="true">${open ? '⌃' : '⌄'}</span></div>${body}</div>`;
+  }).join('') + `<div class="mode-card soon">
       <div class="mode-head"><div><b>Balance Kicking Drill</b><span class="badge">Coming later</span>
       <div class="note" style="font-size:14px">Kick at a target on your own, or kick back and forth with a partner while you both stay balanced on your plant leg. Unlocks once Balance Kick is passing.</div></div></div></div>`;
   wrap.querySelectorAll('.mode-card[data-mode]').forEach(c => c.addEventListener('click', e => {
+    if (c.classList.contains('locked')){ lockMsgFor = c.dataset.mode; renderModes(); return; }
     const sb = e.target.closest('[data-stage]');
-    if (sb){ S.stage = sb.dataset.stage; renderModes(); syncSeg(); renderProgress(); return; }
-    if (c.dataset.mode === S.mode) return; S.mode = c.dataset.mode; renderModes(); syncSeg(); renderProgress();
-    setTimeout(()=>wrap.querySelector('.mode-card.on').scrollIntoView({behavior:'smooth', block:'start'}), 30);
+    if (sb){
+      if (!stageOpen(c.dataset.mode, sb.dataset.stage)){
+        const prev = STAGES[STAGE_ORDER[STAGE_ORDER.indexOf(sb.dataset.stage)-1]].name;
+        stageMsg = `${STAGES[sb.dataset.stage].name} is locked. Pass 8 of your last 10 reps at ${prev} to unlock it.`; renderModes(); return; }
+      stageMsg = ''; S.stage = sb.dataset.stage; renderModes(); syncSeg(); renderProgress(); return; }
+    if (!e.target.closest('.mode-head')) return;            // clicks inside the open card's body don't toggle it
+    const k = c.dataset.mode;
+    if (openMode === k){ openMode = null; renderModes(); return; }   // tap the header again to minimise
+    S.mode = k; openMode = k; renderModes(); syncSeg(); renderProgress();
+    setTimeout(()=>{ const o = wrap.querySelector('.mode-card.open'); o && o.scrollIntoView({behavior:'smooth', block:'start'}); }, 30);
   }));
-  const on = wrap.querySelector('.mode-card.on');
-  makePlayer(on.querySelector('.player'), demoFor(S.mode, S.stage), modeInfo(S.mode, S.stage).steps, on.querySelector('ol.steps'));
+  const o = wrap.querySelector('.mode-card.open');
+  if (o) makePlayer(o.querySelector('.player'), demoFor(S.mode, S.stage), modeInfo(S.mode, S.stage).steps, o.querySelector('ol.steps'));
 }
 
 // ---------- First-time walkthrough ----------
 let onbI = 0;
 const ONB = [
-  () => `<h2>Welcome to Plant Leg Balance</h2>
+  () => `<h2>Welcome to Balanced Kicking</h2>
     <p>When you kick, one leg swings and the other leg holds you up. The one holding you up is your <b style="color:var(--acc)">plant leg</b>.</p>
     <div class="player"></div>
     <p>A steady plant leg means cleaner, more accurate kicks. This game trains it, and you don't need a ball.</p>`,
@@ -1153,14 +1220,15 @@ const ONB = [
     </ul><div style="margin-top:10px">${LOCK_HELP}</div>`,
   () => `<h2>Listen, don't look</h2>
     <p>Your phone is on your leg, so the game talks to you. Turn the volume up.</p>
-    <ul class="plain">
-      <li><b>3 short beeps</b>: get ready</li>
-      <li><b>High beep + "Lift" or "Go"</b>: start the move</li>
-      <li><b>Double beep</b>: rep finished, relax</li>
-      <li><b>Low buzz</b>: balance lost, reset and go again</li>
-      <li>After each rep you hear your <b>score</b> and <b>one tip</b></li>
+    <ul class="plain sounds">
+      <li id="snd0"><b>3 short beeps</b>: get ready</li>
+      <li id="snd1"><b>High beep + "Lift" or "Go"</b>: start the move</li>
+      <li id="snd2"><b>Double beep</b>: rep finished, relax</li>
+      <li id="snd3"><b>Low buzz</b>: balance lost, reset and go again</li>
+      <li id="snd4">After each rep you hear your <b>score</b> and <b>one tip</b></li>
     </ul>
-    <button class="btn ghost small" id="hearBtn">Hear the sounds</button>`,
+    <button class="btn ghost small" id="hearBtn">Hear the sounds</button>
+    <p class="note" style="margin-top:8px">No sound? Turn the volume up, check the ringer switch on the side of your iPhone isn't on silent, and make sure Bluetooth headphones aren't connected.</p>`,
   () => `<h2>Five modes, easy to hard</h2>
     <ol class="steps">
       <li><b>Statue</b>: balance on your plant leg and hold still</li>
@@ -1185,10 +1253,14 @@ function renderOnb(){
   const pl = $('onbBody').querySelector('.player');
   if (pl) makePlayer(pl, DEMOS.intro, ['Standing on both feet', 'Kicking leg back: now the green plant leg holds you up']);
   const hb = $('hearBtn');
-  if (hb) hb.onclick = async () => { initAudio(); hb.disabled = true;
-    for (let i=0;i<3;i++){ beep(660,120); await sleep(1000); } beep(990,300); buzz(200); say('Lift'); await sleep(2500);
-    beep(1200,150); await sleep(80); beep(1200,150); await sleep(600);
-    beep(220,400); await sleep(700); await say('Score 85. Elite rep. Rock-solid plant leg, keep it up.'); hb.disabled = false; };
+  if (hb) hb.onclick = async () => { initAudio(); hb.disabled = true; hb.textContent = 'Playing…';
+    const mark = i => document.querySelectorAll('.sounds li').forEach((li,k) => li.classList.toggle('now', k===i));
+    mark(0); for (let i=0;i<3;i++){ beep(660,120); await sleep(1000); }
+    mark(1); beep(990,300); buzz(200); say('Lift'); await sleep(2500);
+    mark(2); beep(1200,150); await sleep(80); beep(1200,150); await sleep(1200);
+    mark(3); beep(220,400); buzz([100,80,100]); await sleep(1200);
+    mark(4); await say('Score 85. Elite rep. Rock-solid plant leg, keep it up.');
+    mark(-1); hb.disabled = false; hb.textContent = 'Hear the sounds again'; };
 }
 $('onbNext').onclick = () => { if (!onbSingle && onbI < ONB.length-1){ onbI++; renderOnb(); } else closeOnb(); };
 $('onbBack').onclick = () => { if (onbI > 0){ onbI--; renderOnb(); } };
@@ -1197,19 +1269,22 @@ $('howBtn').onclick = () => openOnb(0);
 $('phoneBtn').onclick = () => openOnb(1, true);
 
 // ---------- UI wiring ----------
-function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); $('iconbar').style.visibility = id==='setup' ? 'visible' : 'hidden'; if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); renderAwakeInfo(); } if (id==='live') $('liveTip').textContent=''; }
+function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); $('iconbar').style.visibility = id==='setup' ? 'visible' : 'hidden'; if (id==='setup'){ enforceLocks(); syncSeg(); renderProgress(); renderModes(); renderAwakeInfo(); } if (id==='live') $('liveTip').textContent=''; }
 function syncSeg(){
   document.querySelectorAll('.seg[data-key]').forEach(seg => { const k=seg.dataset.key;
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[k])===b.dataset.v)); });
   const L = LEVELS[S.level];
-  $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '.') + ' In the full game each mode unlocks at its level; all modes are open here for testing.';
+  $('levelInfo').textContent = `Level ${S.level}, ${L.name}: Statue hold ${L.hold} s, tilt pass ≤ ${L.tilt}°` + (L.settle ? `, settle pass ≤ ${L.settle} ms.` : '.') + (testAll() ? ' Testing mode: every level, mode and stage is open.' : ` Unlocked up to Level ${maxLevel()}.`);
   const plantSide = S.foot==='R' ? 'left' : 'right';
   $('plantNote').textContent = `Plant leg: ${plantSide}. Phone on your ${plantSide} hip.`;
   $('footLabel').textContent = S.foot==='R' ? 'Right foot' : 'Left foot';
   $('levelSummary').textContent = `Level ${S.level}: ${L.name} · ${S.reps} reps${S.guide ? ' · talk-through on' : ''}`;
   const I = modeInfo(S.mode, S.stage); $('startBtn').textContent = `Start ${I.name}${I.stageName ? ': ' + I.stageName : ''}`;
-  $('guideChk').checked = S.guide;
+  $('guideChk').checked = S.guide; $('testAllChk').checked = testAll();
+  document.querySelectorAll('.seg[data-key=level] button').forEach(b => b.classList.toggle('locked', +b.dataset.v > maxLevel()));
+  $('modeSummary').textContent = `${I.name}${I.stageName ? ': ' + I.stageName : ''}`;
 }
+$('testAllChk').onchange = e => { try { localStorage.setItem('nxtplay-plb-testall', e.target.checked ? '1' : '0'); } catch(err){} enforceLocks(); syncSeg(); renderModes(); renderProgress(); };
 $('guideChk').onchange = e => { S.guide = e.target.checked; syncSeg(); };
 // ---------- Profile (About you) ----------
 function saveProfile(){ try { localStorage.setItem('nxtplay-plb-profile', JSON.stringify({foot:S.foot, place:S.place, age:S.age})); } catch(e){} }
@@ -1223,11 +1298,13 @@ $('swapFoot').onclick = () => {
 };
 document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return; const k = seg.dataset.key;
+  if (k === 'level' && +b.dataset.v > maxLevel()){ $('levelInfo').innerHTML = `<span style="color:var(--warn)">Level ${b.dataset.v} is locked. Pass 8 of your last 10 reps at Level ${maxLevel()} to unlock the next level.</span>`; return; }
   S[k] = ['level','reps'].includes(k) ? +b.dataset.v : b.dataset.v; syncSeg(); renderProgress();
 }));
-$('startBtn').onclick = () => { demo = false; runSet(); };
-$('demoBtn').onclick = () => { demo = true; runSet(); };
-$('fitBtn').onclick = () => { demo = false; fitCheck(); };
+// Permission and audio are unlocked synchronously inside the tap, before anything else (iPhone requirement)
+$('startBtn').onclick = () => { demo = false; requestMotionPermission(); initAudio(); $('sensorWarn').classList.add('hidden'); runSet(); };
+$('demoBtn').onclick = () => { demo = true; initAudio(); $('sensorWarn').classList.add('hidden'); runSet(); };
+$('fitBtn').onclick = () => { demo = false; requestMotionPermission(); initAudio(); $('sensorWarn').classList.add('hidden'); fitCheck(); };
 $('stopBtn').onclick = () => { stopReq = true; try{speechSynthesis.cancel();}catch(e){} };
 $('againBtn').onclick = () => { selRep = 0; show('setup'); };
 $('copyBtn').onclick = async () => {
