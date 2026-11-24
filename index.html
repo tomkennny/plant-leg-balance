@@ -109,6 +109,8 @@
     <button class="btn ghost small" id="fitBtn">Check phone fit</button>
     <button class="btn ghost small" id="demoBtn">Try with fake sensors</button>
   </div>
+  <div id="awakeInfo" class="card note" style="margin-top:12px;font-size:13px"></div>
+  <div id="voiceInfo" class="note" style="margin-top:10px;text-align:center"></div>
   <div id="sensorWarn" class="card warnbox hidden" style="margin-top:12px"></div>
 </section>
 
@@ -143,6 +145,7 @@
 
 <!-- RESULTS -->
 <section id="results" class="hidden">
+  <div id="resWarn" class="card warnbox hidden"></div>
   <div class="card">
     <h2>Set results <span class="pill" id="resMode"></span></h2>
     <div id="unlockMsg" class="status hidden" style="color:var(--acc);font-weight:700"></div>
@@ -153,7 +156,7 @@
   <div class="card">
     <h2>Rep trace</h2>
     <canvas id="plot" width="1000" height="520"></canvas>
-    <p class="note"><span style="color:var(--blue)">Blue</span> = hip tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Green line = foot plant (or the kick, in Balance Kick), green dashed = settled, blue dashed = ball contact (smart footy), grey band = level tilt band.</p>
+    <p class="note"><span style="color:var(--blue)">Blue</span> = hip tilt from hold reference (&deg;). <span style="color:var(--warn)">Amber</span> = linear acceleration (g). Grey dashed = leg lift detected (Statue, Balance Kick). Green line = foot plant (or the kick, in Balance Kick), green dashed = settled, blue dashed = ball contact (smart footy), grey band = level tilt band over the scored finish window.</p>
     <div id="repDetail" class="note"></div>
     <div class="row">
       <button class="btn ghost small" id="copyBtn">Copy rep CSV</button>
@@ -179,11 +182,16 @@ const ZONES = { // adult starting zones: Elite | Good | Developing | Needs Work 
 };
 const ZONE_NAMES = ['Elite','Good','Developing','Needs Work','Problematic'];
 const CUES = {
-  tilt:    {junior:'Be a lighthouse, tall and still!', youth:'Keep your hips level over your plant foot', senior:v=>`Tilt sway ${v.toFixed(1)} degrees, aim for under 3`},
-  wobble:  {junior:'Freeze like a statue!', youth:'Squeeze your glutes to quieten the wobble', senior:v=>`Wobble ${Math.round(v)} degrees per second, brace through the hip`},
-  settle:  {junior:'Stick the landing like a gymnast!', youth:'Lock in faster after your plant', senior:v=>`Settle ${Math.round(v)} milliseconds, aim for under 500`},
-  collapse:{junior:'Strong leg like a tree trunk!', youth:"Don't sink into your plant leg", senior:v=>`Hip dipped ${Math.round(v)} degrees after plant, stay firm through contact`}
+  tilt:    {junior:'Be a lighthouse, tall and still!', youth:'Keep your hips level over your plant foot', senior:'Too much hip tilt. Aim for under 3 degrees of sway.'},
+  wobble:  {junior:'Freeze like a statue!', youth:'Squeeze your glutes to quieten the wobble', senior:'Too much wobble. Brace through the hip.'},
+  settle:  {junior:'Stick the landing like a gymnast!', youth:'Lock in faster after your plant', senior:'Slow to settle. Aim to lock in within half a second.'},
+  collapse:{junior:'Strong leg like a tree trunk!', youth:"Don't sink into your plant leg", senior:'Your hips dipped. Stay firm through contact.'}
 };
+const FIN_START = 0.4, FIN_END = 1.2; // finish window: 0.4 to 1.2 s after the plant or kick, then the player runs on
+// Lift detection (Statue and Balance Kick): the clock starts when the player actually lifts, not at the beep
+const LIFT_TILT = 4, LIFT_RR = 45, LIFT_WAIT = 5;   // deg from standing posture, deg/s, s to wait before assuming already lifted
+const SETTLE_IN = 0.8, REF_LEN = 1.0;              // s after the lift before the reference posture, and its length
+const KICK_AFTER_LIFT = 2.0;                       // Balance Kick calls "Kick" 2 s after the lift
 const LOSS_TILT = 15;      // deg from reference = balance lost
 const TOUCH_G   = 0.8;     // linear accel spike (g) during hold = free foot touched down
 const PLANT_MIN_G = 0.6;   // min peak (g) to count as a foot plant
@@ -227,6 +235,7 @@ const zoneOf = (v, edges) => ZONE_NAMES[edges.findIndex(e => v < e) === -1 ? 4 :
 // ---------- Audio / haptics ----------
 function initAudio(){
   try { audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume(); } catch(e){}
+  loadVoiceBuffers();
   try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch(e){}
 }
 function beep(freq=880, ms=150, vol=0.25){
@@ -235,7 +244,84 @@ function beep(freq=880, ms=150, vol=0.25){
     o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime+ms/1000); } catch(e){}
 }
 function buzz(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
-function say(text){
+// ---------- Voice pack (Nick's voice clips) with device-voice fallback ----------
+// Clips live beside index.html in voice/<id>.mp3, listed in voice/manifest.json.
+// Every sentence the app speaks maps to one clip id; "Score 85" is built from the "score" clip + the "n85" clip.
+let VOICE = null, voiceOn = true; const voiceBuf = {};
+const slug = t => t.toLowerCase().replace(/&/g,' and ').replace(/['’"“”]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80);
+function sentences(text){
+  return text.replace(/\s*\([^)]*\)/g,'').split(/(?<=[.!?])\s+/).map(x=>x.trim()).filter(Boolean);
+}
+function clipIds(text){
+  const ids = [];
+  sentences(text).forEach(sn => { const m = sn.match(/^Score (\d+)[.!]?$/); if (m){ ids.push('score','n'+m[1]); } else ids.push(slug(sn)); });
+  return ids;
+}
+// Two ways to ship a pack: one bundled file (voice-pack.json beside index.html, easiest to upload),
+// or a voice/ folder of clips plus voice/manifest.json.
+async function loadVoiceManifest(){
+  VOICE = null;
+  try { const r = await fetch('voice-pack.json', {cache:'no-cache'}); if (!r.ok) throw 0;
+        const m = await r.json(); VOICE = {bundle: m.clips || {}, ids: new Set(Object.keys(m.clips || {})), name: m.voice || 'Nick'}; }
+  catch(e){
+    try { const r = await fetch('voice/manifest.json', {cache:'no-cache'}); if (!r.ok) throw 0;
+          const m = await r.json(); VOICE = {ext: m.format || 'mp3', ids: new Set(m.ids || []), name: m.voice || 'Nick'}; }
+    catch(e2){ VOICE = null; }
+  }
+  renderVoiceInfo();
+}
+const b64ToBuf = b => { const bin = atob(b), u = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+let _voiceLoading = null;
+function loadVoiceBuffers(){
+  if (!VOICE || !audio || _voiceLoading) return _voiceLoading;
+  _voiceLoading = Promise.all([...VOICE.ids].map(async id => {
+    try { const ab = VOICE.bundle ? b64ToBuf(VOICE.bundle[id]) : await (await fetch(`voice/${id}.${VOICE.ext}`)).arrayBuffer();
+          voiceBuf[id] = await new Promise((ok, no) => audio.decodeAudioData(ab, ok, no)); } catch(e){}
+  }));
+  return _voiceLoading;
+}
+function playBuf(b){ return new Promise(res => { try { const src = audio.createBufferSource(); src.buffer = b; src.connect(audio.destination); src.onended = res; src.start(); } catch(e){ res(); } }); }
+async function say(text){
+  if (!(VOICE && voiceOn && audio)) return sayDevice(text);
+  await loadVoiceBuffers();
+  for (const sn of sentences(text)){
+    const ids = clipIds(sn);
+    if (ids.every(id => voiceBuf[id])){ for (const id of ids) await playBuf(voiceBuf[id]); await sleep(120); }
+    else await sayDevice(sn);   // a line with no clip falls back to the device voice
+  }
+}
+function renderVoiceInfo(){
+  const el = $('voiceInfo'); if (!el) return;
+  el.innerHTML = VOICE ? `Voice: <b>${VOICE.name}</b> (voice pack, ${VOICE.ids.size} clips) <label class="toggle" style="display:inline-flex;margin:0 0 0 8px"><input type="checkbox" id="voiceChk" ${voiceOn?'checked':''}> use it</label>`
+                       : 'Voice: device voice. Add voice-pack.json beside this page to use Nick\'s voice.';
+  const c = $('voiceChk'); if (c) c.onchange = e => { voiceOn = e.target.checked; };
+}
+// Every line the app can say, split into clip-sized sentences (used to build the recording / generation script)
+function allVoiceLines(){
+  const texts = [];
+  ['statue','plant'].forEach(m => { const I = MODES[m]; texts.push(I.intro, I.cue, I.short, I.go); });
+  Object.keys(KICK_TYPES).forEach(m => STAGE_ORDER.forEach(st => { const I = modeInfo(m, st); texts.push(I.intro, I.cue, I.short, I.go); }));
+  texts.push('Kick', 'Not enough sensor data.', 'Check the phone is upright in your waistband, top pointing up.',
+    'Smart footy pairing is not in this prototype yet. Your balance will still be scored.',
+    'Tuck the phone into your waistband on your left hip, then stand tall on both feet.',
+    'Tuck the phone into your waistband on your right hip, then stand tall on both feet.',
+    'Tuck the phone into your waistband, then tap it firmly twice.',
+    'No taps detected. Tap harder and try again.', 'Good fit.', 'OK fit. Tighten it if you can.', 'Loose fit. Use a firmer waistband or compression shorts.',
+    'No foot plant detected. Plant harder, or check the phone is on the plant leg.', 'No kick detected. Kick through firmly after the "Kick" cue.',
+    'Whoops, balance lost. Try again!', 'Balance lost. Reset and go again.', 'Superstar balance! Every star lit up!', 'Elite rep. Rock-solid plant leg, keep it up.',
+    'Great rep!', 'Pass.', 'Good kick.', 'Okay kick.', 'Bad kick.', 'Score', 'Hold still.', 'Ready.', 'Start on the high beep.',
+    'Tap again to re-check, or press Done.');
+  Object.values(CUES).forEach(c => Object.values(c).forEach(v => texts.push(v)));
+  [2,3,4,5].forEach(l => texts.push(`Level ${l} unlocked: ${LEVELS[l].name}!`));
+  Object.keys(KICK_TYPES).forEach(m => ['step','run'].forEach(st => texts.push(`${KICK_TYPES[m].name}: ${STAGES[st].name} unlocked!`)));
+  for (let i=1;i<=10;i++) texts.push(`Rep ${i}.`);
+  const out = new Map();
+  texts.forEach(t => sentences(t).forEach(sn => { if (!/^Score \d+/.test(sn)) out.set(slug(sn), sn); }));
+  for (let n=0;n<=100;n++) out.set('n'+n, String(n));
+  return [...out].map(([id, text]) => ({id, text}));
+}
+function sayDevice(text){
+  text = text.replace(/\s*\([^)]*\)/g,'');
   return new Promise(res => {
     try {
       const u = new SpeechSynthesisUtterance(text); u.lang='en-AU'; u.rate=1.05;
@@ -247,8 +333,10 @@ function say(text){
 }
 
 // ---------- Sensors ----------
+let haveOrient = false, lastU = null, lastIngestAt = 0;
 function onOrient(e){
   if (e.beta == null || e.gamma == null) return;
+  haveOrient = true;
   const b=e.beta*D, g=e.gamma*D;
   latestU = [-Math.cos(b)*Math.sin(g), Math.sin(b), Math.cos(b)*Math.cos(g)]; // world-up in device frame
   latestUAt = performance.now();
@@ -259,7 +347,10 @@ function onMotion(e){
   if (aig.x != null) { // gravity fallback (low-pass) when orientation events are missing
     const v=[aig.x,aig.y,aig.z]; lpG = lpG ? lpG.map((p,i)=>p*0.9+v[i]*0.1) : v;
   }
-  let u = (latestU && now - latestUAt < 250) ? latestU : (lpG ? norm(lpG) : null);
+  // Orientation source is fixed per session. The accelerometer fallback is used ONLY on devices that never send
+  // orientation events: its sign convention differs between iPhone and Android, so switching to it mid-stream
+  // (e.g. after a brief sensor pause) can produce an upside-down reading. If orientation goes stale, skip the sample.
+  let u = haveOrient ? ((latestU && now - latestUAt < 250) ? latestU : null) : (lpG ? norm(lpG) : null);
   const rr = e.rotationRate || {};
   const rrMag = Math.hypot(rr.alpha||0, rr.beta||0, rr.gamma||0);
   let aLin;
@@ -270,15 +361,26 @@ function onMotion(e){
   if (u) ingest(now, u, rrMag, aLin);
 }
 function ingest(now, u, rrMag, aLin){
+  // Glitch filter: a jump of more than 30 deg between consecutive samples while the gyro shows little rotation is
+  // physically impossible (a 176 deg flip in 15 ms at 5 deg/s), so drop the sample instead of scoring it.
+  if (lastU && now - lastIngestAt < 500 && angBetween(u, lastU) > 30 && rrMag < 150){ if (rec) rec.glitches = (rec.glitches||0) + 1; return; }
+  if (rec && lastIngestAt && now - lastIngestAt > 250) rec.maxGap = Math.max(rec.maxGap||0, (now - lastIngestAt)/1000);
+  lastU = u; lastIngestAt = now;
   hzCount++;
   if (now - hzLast >= 1000){ hz = hzCount*1000/(now-hzLast); hzCount=0; hzLast=now; $('sHz').textContent = Math.round(hz); }
   if (rec){
     const t = (now - rec.t0)/1000;
     rec.samples.push({t, u, rr:rrMag, a:aLin});
     // Statue: set reference from 1.0 to 2.0 s, then watch for loss of balance
-    if (rec.mode==='statue' && !rec.lostAt){
-      if (!rec.ref && t >= 2.0) rec.ref = meanVec(rec.samples.filter(s=>s.t>=1.0).map(s=>s.u));
-      if (rec.ref){
+    if ((rec.mode==='statue' || rec.kind==='balkick') && !rec.lostAt){
+      if (rec.liftT == null){
+        const base = u0 || rec.samples[0].u;
+        if (t >= 0.2 && (angBetween(u, base) > LIFT_TILT || rrMag > LIFT_RR)) rec.liftT = t;
+        else if (t >= LIFT_WAIT){ rec.liftT = 0; rec.liftAssumed = true; }
+      }
+      if (rec.liftT != null && !rec.ref && t >= rec.liftT + SETTLE_IN + REF_LEN)
+        rec.ref = meanVec(rec.samples.filter(s => s.t >= rec.liftT + SETTLE_IN).map(s => s.u));
+      if (rec.ref && rec.mode==='statue'){
         if (angBetween(u, rec.ref) > LOSS_TILT || aLin > TOUCH_G) rec.lostAt = t;
       }
     }
@@ -319,9 +421,36 @@ async function requestSensors(){
   return true;
 }
 function showWarn(t){ const w=$('sensorWarn'); w.textContent=t; w.classList.remove('hidden'); }
+// Keep the screen on while training: Screen Wake Lock where the browser has it (re-requested whenever the page
+// becomes visible again, because the browser drops it), otherwise a tiny silent looping video (works on older iPhones).
+let wakeWanted = false, wakeMode = 'off', noSleepVid = null, fitRunning = false, interruptedByLock = false;
+const NOSLEEP_MP4 = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMxbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAlt0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAAAAABAAAAAAHTbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAgABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABfm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAT5zdGJsAAAAtnN0c2QAAAAAAAAAAQAAAKZhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALGF2Y0MBQsAK/+EAFWdCwAraewEQAAADABAAAAMAQPEiagEABGjOD8gAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAAAAAKeAAACngAAAAYc3R0cwAAAAAAAAABAAAABAAAIAAAAAAUc3RzcwAAAAAAAAABAAAAAQAAABxzdHNjAAAAAAAAAAEAAAABAAAABAAAAAEAAAAkc3RzegAAAAAAAAAAAAAABAAAAoMAAAAJAAAACQAAAAkAAAAUc3RjbwAAAAAAAAABAAADYQAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAAKmbWRhdAAAAm0GBf//adxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0xIGRlYmxvY2s9MTowOjAgYW5hbHlzZT0weDE6MHgxIG1lPWhleCBzdWJtZT0yIHBzeT0xIHBzeV9yZD0xLjAwOjAuMDAgbWl4ZWRfcmVmPTAgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0wIDh4OGRjdD0wIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PTAgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTIgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD0xMCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAOZYiEBT///w9FAAE9/4AAAAAFQZogFPUAAAAFQZpAFPUAAAAFQZpgEvU=';
 async function keepAwake(on){
-  try { if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
-        else if (!on && wakeLock) { await wakeLock.release(); wakeLock=null; } } catch(e){}
+  wakeWanted = on;
+  if (!on){ try { if (wakeLock) await wakeLock.release(); } catch(e){} wakeLock = null; try { noSleepVid && noSleepVid.pause(); } catch(e){} wakeMode = 'off'; return; }
+  try { if ('wakeLock' in navigator){ wakeLock = await navigator.wakeLock.request('screen'); wakeMode = 'wakelock'; return; } } catch(e){}
+  try {
+    if (!noSleepVid){ noSleepVid = document.createElement('video'); noSleepVid.setAttribute('playsinline',''); noSleepVid.setAttribute('muted','');
+      noSleepVid.muted = true; noSleepVid.loop = true; noSleepVid.src = NOSLEEP_MP4;
+      noSleepVid.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;pointer-events:none'; document.body.appendChild(noSleepVid); }
+    await noSleepVid.play(); wakeMode = 'video';
+  } catch(e){ wakeMode = 'failed'; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden'){ if (running || fitRunning) interruptedByLock = true; }
+  else {
+    if (interruptedByLock && (running || fitRunning)){ stopReq = true; try { speechSynthesis.cancel(); } catch(e){} }
+    if (wakeWanted) keepAwake(true);
+  }
+});
+const LOCK_HELP = `<details id="lockHelp"><summary><b>Phone keeps locking?</b></summary><ul class="plain" style="margin-top:6px">
+  <li><b>iPhone:</b> Settings &gt; Display &amp; Brightness &gt; Auto-Lock &gt; Never while you train (set it back afterwards). Turn off Low Power Mode: it forces Auto-Lock to 30 seconds.</li>
+  <li><b>Android:</b> Settings &gt; Display &gt; Screen timeout, set to the longest option.</li>
+  <li>Tuck the phone so its side buttons point up or away from your body. Pressing the side button against your hip locks the phone.</li>
+  <li>Keep this page open on screen: switching apps or locking the phone pauses the sensors.</li></ul></details>`;
+function renderAwakeInfo(){
+  const el = $('awakeInfo'); if (!el) return;
+  el.innerHTML = ('wakeLock' in navigator ? 'The screen stays on automatically while you train.' : '<b style="color:var(--warn)">This browser can\'t keep the screen on by itself.</b> Set Auto-Lock to Never before you start.') + LOCK_HELP;
 }
 
 // ---------- Demo sensor generator ----------
@@ -340,7 +469,7 @@ function startDemo(){
       rr = amp*6 + 4*Math.random();
     }
     if (st.phase==='kickbal' && lt > 0.6){ // lift, sway, kick ~0.35 s after the cue, recoil, hold
-      const amp = st.amp, d = lt - (KICK_CUE + 0.35);
+      const amp = st.amp, d = lt - ((rec && rec.cueT != null ? rec.cueT : 99) + 0.35);
       sag += 12 + amp*Math.sin(lt*2.1); front += amp*0.8*Math.sin(lt*1.7+1); rr = amp*6 + 4*Math.random();
       if (d >= 0){ const k = Math.exp(-d/st.tau);
         sag += 24*k*Math.sin(d*12) + st.drop*0.5*(1-Math.exp(-d/0.1)); front += 5*k*Math.sin(d*9);
@@ -370,51 +499,51 @@ function demoBegin(mode){
 function demoIdle(){ clearInterval(demoTimer); demoTimer=null; demoState={phase:'idle',t0:0}; startDemo(); }
 
 // ---------- Analysis ----------
-function analyse(samples, mode, level, lostAt, stage){
-  const L = LEVELS[level], out = {mode, level, stage, lost:false};
-  if (analysisKind(mode, stage) === 'balkick' && samples.length >= 20) return analyseBalanceKick(samples, out, L);
-  if (samples.length < 20) return {...out, error:'Not enough data'};
+function analyse(samples, mode, level, lostAt, stage, meta={}){
+  const L = LEVELS[level], out = {mode, level, stage, lost:false, liftT: meta.liftT, liftAssumed: meta.liftAssumed};
+  if (analysisKind(mode, stage) === 'balkick' && samples.length >= 20) return analyseBalanceKick(samples, out, L, meta);
+  if (samples.length < 20) return {...out, error:'Not enough sensor data.'};
   const end = samples[samples.length-1].t;
   if (mode === 'statue'){
-    const wEnd = lostAt || end;
-    const win = samples.filter(s => s.t >= 1.0 && s.t <= wEnd);
-    const ref = meanVec(samples.filter(s=>s.t>=1.0 && s.t<=2.0).map(s=>s.u)) || meanVec(win.map(s=>s.u));
+    const wEnd = lostAt || end, s0 = (meta.liftT != null ? meta.liftT : 0.2) + SETTLE_IN;   // scoring starts once the lift has settled
+    const win = samples.filter(s => s.t >= s0 && s.t <= wEnd);
+    const ref = meanVec(win.map(s=>s.u)) || samples[0].u;   // sway is measured around the average balanced posture
     samples.forEach(s => { s.dev = angBetween(s.u, ref); });
-    out.ref = ref; out.windowStart = 1.0; out.windowEnd = wEnd;
+    out.ref = ref; out.windowStart = s0; out.windowEnd = wEnd;
     out.tilt = rms(win.map(s=>s.dev)); out.wobble = rms(win.map(s=>s.rr));
-    out.held = Math.max(0, wEnd - 1.0);
+    out.held = Math.max(0, wEnd - s0);
     if (lostAt) { out.lost = true; out.score = 0; }
     else out.score = 0.65*subScore(out.tilt,ZONES.tilt) + 0.35*subScore(out.wobble,ZONES.wobble);
     out.subs = {tilt:subScore(out.tilt,ZONES.tilt), wobble:subScore(out.wobble,ZONES.wobble)};
     out.pass = !out.lost && out.score >= 70 && out.tilt <= L.tilt;
     return out;
   }
-  // Plant & Hold / Shadow Kick: plant = largest accel peak before the last 2 s
+  // Plant & Stick / one-step and run kicks: plant = largest accel peak with a full finish window after it
   let pk = null;
   samples.forEach((s,i) => {
-    if (s.t < 0.3 || s.t > end - 2.0) return;
+    if (s.t < 0.3 || s.t > end - FIN_END) return;
     const prev = samples[i-1], next = samples[i+1];
     if (prev && next && s.a >= prev.a && s.a >= next.a && s.a >= PLANT_MIN_G && (!pk || s.a > pk.a)) pk = s;
   });
   if (!pk) { samples.forEach(s=>{ s.dev = angBetween(s.u, samples[0].u); }); return {...out, error:'No foot plant detected. Plant harder, or check the phone is on the plant leg.'}; }
   const tp = pk.t; out.plantT = tp;
-  const hold = samples.filter(s => s.t >= tp + 1.0);
+  const hold = samples.filter(s => s.t >= tp + FIN_START && s.t <= tp + FIN_END);   // the 1 s balanced finish
   const ref = meanVec(hold.map(s=>s.u));
   samples.forEach(s => { s.dev = angBetween(s.u, ref); s.sag = components(s.u, ref).sag; });
-  out.ref = ref; out.windowStart = tp + 1.0; out.windowEnd = end;
+  out.ref = ref; out.windowStart = tp + FIN_START; out.windowEnd = tp + FIN_END;
   out.tilt = rms(hold.map(s=>s.dev)); out.wobble = rms(hold.map(s=>s.rr));
-  // settle: first time after plant from which deviation stays inside the band
+  // settle: time after the plant until deviation stays inside the band, within the finish window
   const band = (L.tilt) * 1.5; out.band = band;
-  const post = samples.filter(s => s.t >= tp);
+  const post = samples.filter(s => s.t >= tp && s.t <= tp + FIN_END);
   let lastOut = tp;
   post.forEach(s => { if (s.dev > band) lastOut = s.t; });
+  out.neverSettled = lastOut >= tp + FIN_END - 0.05;
   out.settle = (lastOut - tp) * 1000; out.settledT = lastOut;
-  out.neverSettled = lastOut >= end - 0.2;
   // collapse: change in sagittal angle from plant to plant + 300 ms
   const at = tt => samples.reduce((b,s)=> Math.abs(s.t-tt) < Math.abs(b.t-tt) ? s : b);
   out.collapse = Math.abs(at(tp+0.3).sag - at(tp).sag);
-  // loss of balance during the hold
-  const lost = hold.find(s => s.dev > LOSS_TILT || (s.t > tp + 1.2 && s.a > TOUCH_G));
+  // loss of balance during the finish window (running on afterwards is expected)
+  const lost = hold.find(s => s.dev > LOSS_TILT || (s.t > tp + 0.5 && s.a > TOUCH_G));
   if (lost) { out.lost = true; out.lostAt = lost.t; }
   out.subs = {tilt:subScore(out.tilt,ZONES.tilt), wobble:subScore(out.wobble,ZONES.wobble),
               settle:subScore(out.settle,ZONES.settle), collapse:subScore(out.collapse,ZONES.collapse)};
@@ -422,24 +551,25 @@ function analyse(samples, mode, level, lostAt, stage){
   out.pass = !out.lost && out.score >= 70 && out.tilt <= L.tilt && (L.settle == null || out.settle <= L.settle);
   return out;
 }
-function analyseBalanceKick(samples, out, L){
+function analyseBalanceKick(samples, out, L, meta={}){
   const end = samples[samples.length-1].t;
+  const cueT = meta.cueT != null ? meta.cueT : KICK_CUE, s0 = (meta.liftT != null ? meta.liftT : 0.2) + SETTLE_IN;
   let kk = null; // kick = biggest hip rotation-rate peak after the cue
-  samples.forEach(s => { if (s.t >= KICK_CUE - 0.2 && s.t <= end - 1.0 && s.rr >= 60 && (!kk || s.rr > kk.rr)) kk = s; });
-  const preRef = meanVec(samples.filter(s => s.t >= 1.0 && s.t <= Math.min(2.0, KICK_CUE)).map(s => s.u)) || samples[0].u;
+  samples.forEach(s => { if (s.t >= cueT - 0.2 && s.t <= end - FIN_END && s.rr >= 60 && (!kk || s.rr > kk.rr)) kk = s; });
+  const preRef = meanVec(samples.filter(s => s.t >= s0 && s.t <= cueT).map(s => s.u)) || samples[0].u;
   if (!kk){ samples.forEach(s => s.dev = angBetween(s.u, preRef)); return {...out, error:'No kick detected. Kick through firmly after the "Kick" cue.'}; }
   const tk = kk.t; out.kickT = tk;
-  const postRef = meanVec(samples.filter(s => s.t >= tk + 1.0).map(s => s.u)) || preRef;
+  const postRef = meanVec(samples.filter(s => s.t >= tk + FIN_START && s.t <= tk + FIN_END).map(s => s.u)) || preRef;
   samples.forEach(s => { const ref = s.t < tk ? preRef : postRef; s.dev = angBetween(s.u, ref); s.sag = components(s.u, postRef).sag; });
-  const win = samples.filter(s => (s.t >= 1.0 && s.t <= tk - 0.15) || s.t >= tk + 1.0);
-  out.ref = postRef; out.windowStart = tk + 1.0; out.windowEnd = end;
+  const win = samples.filter(s => (s.t >= s0 && s.t <= tk - 0.15) || (s.t >= tk + FIN_START && s.t <= tk + FIN_END));
+  out.ref = postRef; out.windowStart = tk + FIN_START; out.windowEnd = tk + FIN_END;
   out.tilt = rms(win.map(s => s.dev)); out.wobble = rms(win.map(s => s.rr));
   const band = L.tilt * 1.5; out.band = band;
-  let lastOut = tk; samples.forEach(s => { if (s.t >= tk && s.dev > band) lastOut = s.t; });
-  out.settle = (lastOut - tk) * 1000; out.settledT = lastOut; out.neverSettled = lastOut >= end - 0.2;
+  let lastOut = tk; samples.forEach(s => { if (s.t >= tk && s.t <= tk + FIN_END && s.dev > band) lastOut = s.t; });
+  out.settle = (lastOut - tk) * 1000; out.settledT = lastOut; out.neverSettled = lastOut >= tk + FIN_END - 0.05;
   const at = tt => samples.reduce((b,s) => Math.abs(s.t-tt) < Math.abs(b.t-tt) ? s : b);
   out.collapse = Math.abs(at(tk+0.3).sag - at(tk).sag);
-  const lost = samples.find(s => s.t >= 1.0 && (s.t < tk - 0.3 || s.t > tk + 0.8) && (s.dev > LOSS_TILT || s.a > TOUCH_G));
+  const lost = samples.find(s => s.t >= s0 && (s.t < tk - 0.3 || (s.t > tk + 0.8 && s.t <= tk + FIN_END)) && (s.dev > LOSS_TILT || s.a > TOUCH_G));
   if (lost){ out.lost = true; out.lostAt = lost.t; }
   out.subs = {tilt:subScore(out.tilt,ZONES.tilt), wobble:subScore(out.wobble,ZONES.wobble), settle:subScore(out.settle,ZONES.settle), collapse:subScore(out.collapse,ZONES.collapse)};
   out.score = out.lost ? 0 : 0.40*out.subs.tilt + 0.25*out.subs.wobble + 0.25*out.subs.settle + 0.10*out.subs.collapse;
@@ -458,7 +588,6 @@ function cueCore(r){
   const c = CUES[weakest][S.age];
   const head = r.pass ? (S.age==='junior' ? 'Great rep! ' : 'Pass. ') : '';
   let txt = typeof c === 'function' ? c(r[weakest]) : c;
-  if (r.kickT != null) txt = txt.replace('after plant', 'as you kicked').replace('after your plant', 'after your kick');
   return head + txt;
 }
 
@@ -468,37 +597,46 @@ async function countdown(n, label){
   $('liveBig').textContent = label; beep(990,300); buzz(200);
 }
 async function recordRep(mode, level, stage){
-  const dur = windowFor(mode, stage, level), kind = analysisKind(mode, stage);
-  rec = {t0: performance.now(), samples: [], ref:null, lostAt:null, mode};
+  const kind = analysisKind(mode, stage), ballExtra = isKick(mode) && KICK_TYPES[mode].ball ? 0.3 : 0;
+  rec = {t0: performance.now(), samples: [], ref:null, lostAt:null, mode, kind, liftT:null, cueT:null};
   if (demo) demoBegin(demoPhase(mode, stage));
-  const start = performance.now(); let cued = false;
-  while (performance.now() - start < dur*1000){
+  const start = performance.now(), now = () => (performance.now() - start)/1000;
+  // Statue and Balance Kick run from the detected lift; the other modes use a fixed window
+  const endAt = () => kind==='statue' ? (rec.liftT == null ? Infinity : rec.liftT + SETTLE_IN + LEVELS[level].hold)
+                    : kind==='balkick' ? (rec.cueT == null ? Infinity : rec.cueT + 0.35 + FIN_END + 0.6 + ballExtra)
+                    : windowFor(mode, stage, level);
+  while (now() < endAt() && now() < LIFT_WAIT + 40){
     if (stopReq) break;
-    if (kind==='balkick' && !cued && performance.now() - start >= KICK_CUE*1000){
-      cued = true; beep(990,250); buzz(150); say('Kick'); $('liveBig').textContent = 'Kick!'; }
+    if (kind==='balkick' && rec.cueT == null && rec.liftT != null && now() >= rec.liftT + KICK_AFTER_LIFT){
+      rec.cueT = now(); beep(990,250); buzz(150); say('Kick'); $('liveBig').textContent = 'Kick!'; }
     if (rec.lostAt){ beep(220,400); buzz([100,80,100]); break; }
-    const left = Math.ceil(dur - (performance.now()-start)/1000);
-    if (mode==='statue') $('liveBig').textContent = left;
-    await sleep(100);
+    if (kind==='statue') $('liveBig').textContent = rec.liftT == null ? 'Lift' : Math.ceil(endAt() - now());
+    await sleep(50);
   }
   const r = rec; rec = null; if (demo) demoIdle();
   beep(1200,150); await sleep(80); beep(1200,150); buzz(100);
   return r;
 }
 async function calibrate(){
-  $('liveStatus').textContent = 'Tuck the phone into your waistband on your plant-leg hip. Stand tall on both feet.';
-  await say(`Tuck the phone into your waistband on your ${S.foot==='R'?'left':'right'} hip, then stand tall on both feet.`);
-  await countdown(5, 'Hold still');
+  // No beeps here: beeps always mean "a rep is about to start", so calibration is voice-only
+  const side = S.foot==='R' ? 'left' : 'right';
+  $('liveStatus').textContent = `Tuck the phone into your waistband on your ${side} hip, then stand tall on both feet.`;
+  $('liveTip').textContent = 'No need to move yet: this just records how you stand.'; $('liveBig').textContent = '…';
+  await say(`Tuck the phone into your waistband on your ${side} hip, then stand tall on both feet.`);
+  for (let k = 4; k > 0 && !stopReq; k--){ $('liveBig').textContent = k; await sleep(1000); }   // time to tuck it in, silently
   if (stopReq) return false;
+  $('liveBig').textContent = 'Hold still'; await say('Hold still.');
   const buf = []; rec = {t0:performance.now(), samples:buf, mode:'cal'};
   await sleep(3000); rec = null;
+  if (stopReq) return false;
+  $('liveBig').textContent = '✓'; $('liveTip').textContent = ''; await say('Ready.');
   if (buf.length < 30){ $('liveStatus').textContent='Not enough sensor data.'; await say('Not enough sensor data.'); return false; }
   u0 = meanVec(buf.map(s=>s.u));
   if (Math.abs(u0[1]) < 0.7 && !demo){ await say('Check the phone is upright in your waistband, top pointing up.'); }
   return true;
 }
 async function runSet(){
-  running = true; stopReq = false; setResults = [];
+  running = true; stopReq = false; setResults = []; interruptedByLock = false; $('stopBtn').textContent = 'Stop set';
   show('live'); initAudio(); await keepAwake(true);
   if (!await requestSensors()){ show('setup'); running=false; return; }
   if (demo) demoIdle();
@@ -506,19 +644,22 @@ async function runSet(){
     $('liveStatus').textContent = 'Smart footy pairing is not in this prototype yet. Scoring balance only.';
     await say('Smart footy pairing is not in this prototype yet. Your balance will still be scored.');
   }
-  if (!await calibrate()){ finish(); return; }
   const mode = S.mode, level = S.level, stage = S.stage;
+  // explain the move first, while the phone is still in hand, then calibrate, then go
+  if (S.guide){ $('liveStatus').textContent = modeInfo(mode, stage).name; $('liveTip').textContent = 'Listen to how this mode works'; await say(modeInfo(mode, stage).intro); }
+  if (!stopReq && !await calibrate()){ finish(); return; }
   for (let i=1; i<=S.reps && !stopReq; i++){
     $('liveStatus').textContent = `Rep ${i} of ${S.reps}`;
     const M = modeInfo(mode, stage);
-    if (i === 1 && S.guide) await say(M.intro);
-    await say(`Rep ${i}. ${S.guide ? M.cue : M.short}`);
+    $('liveTip').textContent = 'Wait for the high beep';
+    await say(`Rep ${i}. ${S.guide ? M.cue : M.short}` + (i === 1 ? ' Start on the high beep.' : ''));
     $('liveTip').textContent = M.hold;
     await countdown(3, M.go);
     if (stopReq) break;
     say(M.go);
     const r = await recordRep(mode, level, stage);
-    const res = analyse(r.samples, mode, level, r.lostAt, stage);
+    const res = analyse(r.samples, mode, level, r.lostAt, stage, {liftT: r.liftT, cueT: r.cueT, liftAssumed: r.liftAssumed});
+    res.maxGap = r.maxGap; res.glitches = r.glitches;
     res.samples = r.samples; res.n = i;
     if (mode === 'smartkick') attachBall(res);
     setResults.push(res);
@@ -529,10 +670,13 @@ async function runSet(){
   }
   finish();
 }
+const LOCK_MSG = 'The screen locked or the app was hidden during the set, which pauses the sensors, so the set stopped.';
 function finish(){
   running = false; rec = null; keepAwake(false);
   if (demo) { clearInterval(demoTimer); demoTimer=null; }
-  if (!setResults.length){ show('setup'); return; }
+  if (interruptedByLock && setResults.length){ const w = $('resWarn'); w.innerHTML = LOCK_MSG + LOCK_HELP; w.classList.remove('hidden'); }
+  else $('resWarn').classList.add('hidden');
+  if (!setResults.length){ show('setup'); if (interruptedByLock){ showWarn(LOCK_MSG); $('lockHelp') && ($('lockHelp').open = true); } return; }
   saveHistory(setResults);
   const unlocked = checkUnlock();
   renderResults(unlocked);
@@ -638,19 +782,20 @@ function renderPlot(r){
   for (let t=0;t<=tMax;t+=Math.max(1,Math.round(tMax/8))){ x.beginPath(); x.moveTo(X(t),pad*0.6); x.lineTo(X(t),H-pad); x.stroke(); x.fillText(t+'s', X(t)-10, H-pad+28); }
   [0,5,10,15].forEach(d => { x.fillText(d+'°', 4, Y(d)+7); });
   const band = r.band || LEVELS[r.level].tilt;
-  x.fillStyle='rgba(154,171,189,.12)'; x.fillRect(X(r.windowStart||0), Y(band), X(tMax)-X(r.windowStart||0), Y(0)-Y(band));
+  x.fillStyle='rgba(154,171,189,.12)'; x.fillRect(X(r.windowStart||0), Y(band), X(r.windowEnd||tMax)-X(r.windowStart||0), Y(0)-Y(band));
   const line = (f, col, w) => { x.beginPath(); s.forEach((p,i)=>{ const yy=f(p); i?x.lineTo(X(p.t),yy):x.moveTo(X(p.t),yy); }); x.strokeStyle=col; x.lineWidth=w; x.stroke(); };
   line(p=>YA(p.a), '#f2b632', 1.5);
   line(p=>Y(Math.min(p.dev||0, 30)), '#4aa3ff', 3);
   const vline = (t,col,dash) => { if (t==null) return; x.setLineDash(dash?[10,8]:[]); x.beginPath(); x.moveTo(X(t),pad*0.6); x.lineTo(X(t),H-pad); x.strokeStyle=col; x.lineWidth=3; x.stroke(); x.setLineDash([]); };
   vline(r.plantT != null ? r.plantT : r.kickT, '#2fbf71', false); if (!r.neverSettled) vline(r.settledT, '#2fbf71', true);
+  vline(r.liftT, '#9aabbd', true);
   vline(r.lostAt, '#ef5b5b', false);
   if (r.ball) vline(r.ball.contactT, '#4aa3ff', true);
   const z = k => r[k]==null ? '' : ` (${zoneOf(r[k], ZONES[k])})`;
   $('repDetail').innerHTML = r.error ? r.error :
     `Score <b>${Math.round(r.score)}</b>. Tilt sway ${fmt(r.tilt)}°${z('tilt')}, wobble ${fmt(r.wobble,0)}°/s${z('wobble')}` +
     (r.mode==='statue' ? `, held ${fmt(r.held)} s.` : `, settle ${Math.round(r.settle)} ms${r.neverSettled?' (never settled)':''}${z('settle')}, hip dip ${fmt(r.collapse)}°${z('collapse')}.`) +
-    ` Samples: ${s.length} (${Math.round(s.length/tMax)} Hz). Cue: "${cueFor(r)}"`;
+    ` Samples: ${s.length} (${Math.round(s.length/tMax)} Hz).` + (r.liftAssumed ? ' No clear leg lift detected, so scoring started from the beep.' : '') + (r.maxGap ? ` Sensor data paused for ${r.maxGap.toFixed(2)} s.` : '') + (r.glitches ? ` ${r.glitches} impossible reading(s) ignored.` : '') + ` Cue: "${cueFor(r)}"`;
 }
 function repCSV(r){
   const rows = ['t_s,up_x,up_y,up_z,tilt_from_ref_deg,rotation_rate_deg_s,linear_accel_g'];
@@ -660,26 +805,41 @@ function repCSV(r){
 
 // ---------- Fit check ----------
 async function fitCheck(){
-  show('live'); initAudio(); stopReq=false;
-  if (!await requestSensors()){ show('setup'); return; }
+  show('live'); initAudio(); stopReq = false; fitRunning = true; interruptedByLock = false;
+  $('stopBtn').textContent = 'Done'; await keepAwake(true);
+  if (!await requestSensors()){ fitRunning = false; keepAwake(false); show('setup'); return; }
   if (demo) demoIdle();
-  $('liveStatus').textContent = 'Tuck the phone into your waistband, then tap it firmly twice.'; $('liveBig').textContent='Tap x2';
+  $('liveStatus').textContent = 'Tuck the phone into your waistband, then tap it firmly twice.'; $('liveBig').textContent = 'Tap x2';
+  $('liveTip').textContent = 'Keeps listening until you press Done';
   await say('Tuck the phone into your waistband, then tap it firmly twice.');
-  const buf=[]; rec={t0:performance.now(), samples:buf, mode:'fit'};
-  if (demo){ setTimeout(()=>{ for(let k=0;k<30;k++) setTimeout(()=>ingest(performance.now(), [0,1,0], 5, k<2?1.6:(k<14?0.4*Math.exp(-k/5):0.02)),k*10); }, 800); }
-  await sleep(4000); rec=null;
-  const spikes=[]; buf.forEach((s,i)=>{ if (s.a>1.0 && (!spikes.length || s.t - spikes[spikes.length-1].t > 0.3)) spikes.push({t:s.t,i}); });
-  let msg;
-  if (!spikes.length) msg = 'No taps detected. Tap harder and try again.';
-  else {
+  let lastMsg = null, windowN = 0, missed = 0;
+  // Listen in 4 s windows until Done: a miss keeps listening, a result is announced and you can re-test after adjusting
+  while (!stopReq){
+    windowN++;
+    const buf = []; rec = {t0: performance.now(), samples: buf, mode: 'fit'};
+    if (demo && windowN === 2){ setTimeout(() => { for (let k=0;k<30;k++) setTimeout(() => ingest(performance.now(), [0,1,0], 5, k<2?1.6:(k<14?0.4*Math.exp(-k/5):0.02)), k*10); }, 800); }
+    for (let k = 0; k < 40 && !stopReq; k++) await sleep(100);
+    rec = null; if (stopReq) break;
+    const spikes = []; buf.forEach((x,i) => { if (x.a > 1.0 && (!spikes.length || x.t - spikes[spikes.length-1].t > 0.3)) spikes.push({t:x.t, i}); });
+    if (!spikes.length){
+      missed++;
+      $('liveStatus').textContent = 'No taps detected yet. Tap the phone firmly twice.'; $('liveBig').textContent = 'Tap x2';
+      if (missed === 1 || missed % 3 === 0) await say('No taps detected. Tap harder and try again.'); else beep(440, 120);
+      continue;
+    }
+    missed = 0;
     const rings = spikes.map(sp => { let end = sp.t; for (let j=sp.i;j<buf.length;j++){ if (buf[j].a > 0.15) end = buf[j].t; if (buf[j].t - sp.t > 0.6) break; } return (end-sp.t)*1000; });
     const avg = rings.reduce((a,b)=>a+b,0)/rings.length;
-    msg = avg < 120 ? `Good fit (ring-down ${Math.round(avg)} ms).` : avg < 250 ? `OK fit (ring-down ${Math.round(avg)} ms). Tighten if you can.` : `Loose (ring-down ${Math.round(avg)} ms). Tighten the band or use a fitted pocket.`;
+    lastMsg = avg < 120 ? `Good fit (ring-down ${Math.round(avg)} ms).` : avg < 250 ? `OK fit (ring-down ${Math.round(avg)} ms). Tighten it if you can.` : `Loose fit (ring-down ${Math.round(avg)} ms). Use a firmer waistband or compression shorts.`;
+    $('liveStatus').textContent = lastMsg; $('liveBig').textContent = avg < 250 ? '✓' : '!';
+    $('liveTip').textContent = 'Adjust and tap twice again to re-check, or press Done';
+    await say(lastMsg + ' Tap again to re-check, or press Done.');
   }
-  $('liveStatus').textContent = msg; $('liveBig').textContent = '✓';
-  await say(msg); await sleep(1500); if (demo){ clearInterval(demoTimer); demoTimer=null; }
+  fitRunning = false; rec = null; keepAwake(false); if (demo){ clearInterval(demoTimer); demoTimer=null; }
+  $('stopBtn').textContent = 'Stop set'; $('liveTip').textContent = '';
   show('setup');
-  showWarn('Fit check: ' + msg);
+  if (interruptedByLock){ showWarn(LOCK_MSG); $('lockHelp') && ($('lockHelp').open = true); }
+  else if (lastMsg) showWarn('Fit check: ' + lastMsg);
 }
 
 // ---------- Mode content (plain-English explanations) ----------
@@ -696,20 +856,20 @@ const MODES = {
     hold:'Hold still: keep the dot inside the green ring'
   },
   plant: {
-    name:'Plant & Hold', level:2, tag:'Land a firm plant, then freeze',
-    what:'Take one step onto your plant leg as if you are about to kick, swing your kicking leg through, then freeze. It trains your plant leg to lock in fast instead of wobbling or sinking.',
-    steps:['Stand one big step behind your spot','On "Go", step forward and land firmly on your plant leg','Swing your kicking leg through like you just kicked','Freeze in that finish position until the double beep'],
-    measures:['Settle: how quickly you lock in after landing','Hip dip: whether your hips sink after landing','Tilt and wobble while you hold the finish'],
+    name:'Plant & Stick', level:2, tag:'Land a firm plant and stick it',
+    what:'Take one step onto your plant leg as if you are about to kick, swing your kicking leg through, and stay balanced for a second before stepping on. It trains your plant leg to lock in fast instead of wobbling or sinking.',
+    steps:['Stand one big step behind your spot','On "Go", step forward and land firmly on your plant leg','Swing your kicking leg through like you just kicked','Stay balanced on the plant leg for a second, then step on'],
+    measures:['Settle: how quickly you lock in after landing','Hip dip: whether your hips sink after landing','Tilt and wobble in the second after you land'],
     mistakes:['A soft knee that keeps sinking after you land','A step that is too long, so you over-reach','Putting your kicking foot down before the beep'],
     tip:'Land on your whole foot with your plant foot pointing at your target.',
-    intro:'Plant and Hold. Stand one big step back. When you hear Go, step onto your plant leg, swing your kicking leg through, and freeze until the double beep.',
-    cue:'Get ready: one step, plant, swing through, and freeze.', short:'Get ready to step and plant.', go:'Go',
-    hold:'Step, plant, swing through, then freeze'
+    intro:'Plant and Stick. Stand one big step back. When you hear Go, step onto your plant leg, swing your kicking leg through, stay balanced for a second, then step on.',
+    cue:'Get ready: one step, plant, swing through, and stick it.', short:'Get ready to step and plant.', go:'Go',
+    hold:'Step, plant, swing through, stick it for a second'
   }
 };
 const KICK_TYPES = {
   shadow:   {name:'Shadow Kick', level:3, ball:false, tag:'The kicking action, no ball needed',
-             what:'Kick an imaginary ball and hold your finish. Learn the movement in three stages before adding a real footy.',
+             what:'Kick an imaginary ball and stay balanced through your finish. Learn the movement in three stages before adding a real footy.',
              tip:'Get each stage passing before you move on. Smooth beats fast.'},
   realkick: {name:'Real Kick', level:3, ball:true, tag:'Kick a real footy, any ball',
              what:'The same three stages with any footy. The phone scores your plant leg. It can\'t see the ball, so watch where your kicks go too.',
@@ -724,41 +884,42 @@ const STAGES = {
   run:    {name:'Kick on the Run', short:'3. On the run', desc:'Three-step run-in, plant and kick. The full game-day action.'}
 };
 const STAGE_ORDER = ['balance','step','run'];
-const KICK_CUE = 2.5;   // s after "Lift" when Balance Kick calls "Kick"
+const KICK_CUE = 2.5;   // fallback cue time if no lift data (normally the cue follows the detected lift)
 const isKick = m => !!KICK_TYPES[m];
 function modeInfo(mode, stage){
   if (!isKick(mode)) return MODES[mode];
   const T = KICK_TYPES[mode], St = STAGES[stage], b = T.ball;
-  const kickTxt = (b ? 'Drop the ball and kick through it' : 'Kick through an imaginary ball at knee height') + (T.smart ? ': the ball records contact and rates the kick' : '');
-  const holdTxt = 'Hold your finish on the plant leg until the double beep';
+  const kickBase = b ? 'Drop the ball and kick through it' : 'Kick through an imaginary ball at knee height';
+  const smartNote = T.smart ? '. The ball records contact and rates the kick' : '';
+  const kickTxt = kickBase + smartNote;
   const steps = {
-    balance:[`Balance on your plant leg, kicking leg pulled back${b?', footy held out in front':''}`, `On "Kick", ${kickTxt.charAt(0).toLowerCase()+kickTxt.slice(1)}, without putting your foot down`, holdTxt, b ? 'Collect the ball and get ready for the next rep' : 'Put your foot down and relax'],
-    step:   [`Stand one big step behind your spot${b?', holding the footy':''}`, 'On "Go", step forward onto your plant leg', kickTxt, holdTxt],
-    run:    [`Start three steps back${b?', holding the footy':''}`, 'On "Go", take three steps in and plant', kickTxt, holdTxt]
+    balance:[`Balance on your plant leg, kicking leg pulled back${b?', footy held out in front':''}`, `On "Kick", ${kickBase.charAt(0).toLowerCase()+kickBase.slice(1)}, without putting your foot down${smartNote}`, 'Stay balanced on the plant leg for a second after the kick', b ? 'Put your foot down and collect the ball' : 'Put your foot down and relax'],
+    step:   [`Stand one big step behind your spot${b?', holding the footy':''}`, 'On "Go", step forward onto your plant leg', kickTxt, 'Stay balanced on the plant leg for a second, then step on'],
+    run:    [`Start three steps back${b?', holding the footy':''}`, 'On "Go", take three steps in and plant', kickTxt, 'Stay balanced on the plant leg for a second, then run on']
   }[stage];
   const measures = {
     balance:['Balance before the kick: tilt and wobble','Recoil: how quickly you re-settle after the kick','Hip dip: whether your hips sink as you kick'],
-    step:['Settle: how quickly you lock in after landing','Hip dip: whether your hips sink after landing','Tilt and wobble while you hold the finish'],
-    run:['Settle: how quickly you lock in after the plant','Hip dip: whether your hips sink after the plant','Tilt and wobble while you hold the finish']
+    step:['Settle: how quickly you lock in after landing','Hip dip: whether your hips sink after landing','Tilt and wobble in the second after the kick'],
+    run:['Settle: how quickly you lock in after the plant','Hip dip: whether your hips sink after the plant','Tilt and wobble in the second after the kick']
   }[stage].concat(T.smart ? ['Your balance at the exact moment the ball is struck','Kick rating from the ball: good, okay or bad'] : b ? ['Not ball flight: the phone only measures your balance'] : []);
   const mistakes = {
     balance:['Putting your kicking foot down to reset before the kick','Leaning back as you kick','Swinging so hard you hop on your plant foot'],
     step:['A soft knee that sinks after you land','A step that is too long, so you over-reach','Kicking before you have landed and settled'],
     run:['Rushing the run-in so the plant is out of control','Falling away to the side after the kick','Letting the kicking leg drag you off balance']
-  }[stage].concat(b ? ['Turning to watch the ball instead of holding your finish'] : []);
+  }[stage].concat(b ? ['Turning to watch the ball before you have stayed balanced through the finish'] : []);
   return {
     name:T.name, stageName:St.name, level:T.level, tag:T.tag, what:T.what, tip:T.tip, steps, measures, mistakes,
     intro:`${T.name}, ${St.name}. ` + steps.slice(0,3).join('. ') + '.',
-    cue: stage==='balance' ? 'Get ready to lift, then kick when you hear Kick.' : stage==='step' ? 'Get ready: one step, plant, kick, and hold.' : 'Get ready: three steps, plant, kick, and hold.',
+    cue: stage==='balance' ? 'Get ready to lift, then kick when you hear Kick.' : stage==='step' ? 'Get ready: one step, plant, kick, and stick it.' : 'Get ready: three steps, plant, kick, and stick it.',
     short:'Get ready.', go: stage==='balance' ? 'Lift' : 'Go',
-    hold: stage==='balance' ? 'Balance, kick on the cue, hold the finish' : stage==='step' ? 'One step, plant, kick, hold the finish' : 'Three steps, plant, kick, hold the finish'
+    hold: stage==='balance' ? 'Balance, kick on the cue, stay balanced a second' : stage==='step' ? 'One step, plant, kick, stick it, step on' : 'Three steps, plant, kick, stick it, run on'
   };
 }
 function analysisKind(mode, stage){ return mode==='statue' ? 'statue' : (isKick(mode) && stage==='balance') ? 'balkick' : 'plant'; }
 function windowFor(mode, stage, level){
   if (mode==='statue') return LEVELS[level].hold + 1.0;
-  if (mode==='plant') return 5;
-  return {balance:6.5, step:5.5, run:6.5}[stage] + (KICK_TYPES[mode].ball ? 0.5 : 0);
+  if (mode==='plant') return 3.2;
+  return {balance:4.4, step:3.2, run:4.0}[stage] + (KICK_TYPES[mode].ball ? 0.3 : 0);
 }
 function demoPhase(mode, stage){ return mode==='statue' ? 'statue' : mode==='plant' ? 'plant' : {balance:'kickbal', step:'plant', run:'run'}[stage]; }
 
@@ -817,6 +978,9 @@ const LOADED = P({g:'P', pH:4, pK:12, kH:-28, kK:85, lean:6, aP:60, aK:-35});
 const STRIDE_A = x => P({x, g:'P', pH:-12, pK:5, kH:22, kK:25, lean:8, aP:-25, aK:25});
 const STRIDE_B = x => P({x, g:'K', pH:22, pK:25, kH:-12, kK:5, lean:8, aP:25, aK:-25});
 const FINISH = P({x:0, g:'P', pH:0, pK:8, kH:85, kK:0, lean:-14, aP:35, aK:-60});
+// stepping or running on after the 1 s balanced finish: kicking foot lands in front, then the plant leg comes through
+const RUNON_A = x => P({x, g:'K', pH:-18, pK:25, kH:16, kK:6, lean:6, aP:-20, aK:20});
+const RUNON_B = x => P({x, g:'P', pH:16, pK:6, kH:-18, kK:30, lean:6, aP:20, aK:-20});
 function finalizeFrames(fr){ fr.forEach(f => { f.p = withHip(f.p); if (f.hold){ f.p.bx = FIG.X0 + f.p.x + 44; f.p.by = f.p.hy - 20; } }); return fr; }
 // Kick demo for any kick type x stage: an approach (or a balanced hold), then a shared kick-and-hold tail
 const _kickDemoCache = {};
@@ -846,8 +1010,10 @@ function kickDemo(type, stage){
     {t:tb+0.25, p:P({x:-6, g:'P', pH:10, pK:14, kH:-10, kK:60, lean:6, aP:50, aK:-20, ...bp(248,150)}), c:kc},
     {t:tb+0.45, p:P({...CONTACT, ...bp(256,168,{flash:smart})}), c:kc},
     {t:tb+0.95, p:{...FINISH, ...(ball ? {bx:340, by:60, bo:1, smart, flash:smart} : {ball:0})}, c:kc+1},
-    {t:tb+1.5, p:{...FINISH, wob:1, ...(ball ? {bx:420, by:0, bo:0, smart} : {})}, c:kc+1},
-    {t:tb+4.4, p:{...FINISH, wob:1}, c:kc+1}, {t:tb+5.2, p:STAND, c:3}, {t:tb+6.2, p:STAND, c:3});
+    {t:tb+1.4, p:{...FINISH, wob:0.6, ...(ball ? {bx:420, by:0, bo:0, smart} : {})}, c:kc+1},
+    {t:tb+2.0, p:{...FINISH, wob:0.6}, c:kc+1});
+  if (stage === 'balance') fr.push({t:tb+2.7, p:P({x:-4}), c:3}, {t:tb+3.7, p:P({x:-4}), c:3});
+  else fr.push({t:tb+2.5, p:RUNON_A(28), c:3}, {t:tb+3.0, p:RUNON_B(62), c:3}, {t:tb+3.6, p:P({x:84}), c:3}, {t:tb+4.6, p:P({x:84}), c:3});
   return (_kickDemoCache[key] = finalizeFrames(fr));
 }
 const demoFor = (mode, stage) => isKick(mode) ? kickDemo(mode, stage) : DEMOS[mode];
@@ -861,8 +1027,8 @@ const DEMOS = {
     {t:0, p:P({x:-70}), c:0}, {t:1.6, p:P({x:-70}), c:0},
     {t:2.3, p:P({x:-40, g:'K', pH:28, pK:8, kH:-12, kK:10, lean:6, aP:-20, aK:25}), c:1},
     {t:2.9, p:P({x:-5, g:'P', pH:14, pK:18, kH:-30, kK:75, lean:8, aP:50, aK:-30}), c:1},
-    {t:3.5, p:FINISH, c:2}, {t:4.1, p:{...FINISH, wob:1}, c:3},
-    {t:7.6, p:{...FINISH, wob:1}, c:3}, {t:8.4, p:STAND, c:3}, {t:9.4, p:STAND, c:3}
+    {t:3.5, p:FINISH, c:2}, {t:3.8, p:{...FINISH, wob:0.6}, c:3}, {t:4.6, p:{...FINISH, wob:0.6}, c:3},
+    {t:5.1, p:RUNON_A(28), c:3}, {t:5.6, p:RUNON_B(62), c:3}, {t:6.2, p:P({x:84}), c:3}, {t:7.2, p:P({x:84}), c:3}
   ],
   intro: [
     {t:0, p:STAND, c:0}, {t:1.6, p:STAND, c:0}, {t:2.4, p:LOADED, c:1},
@@ -953,6 +1119,7 @@ const ONB = [
       <li>Tuck it into your waistband on the side of your plant-leg hip</li>
       <li>Screen facing out, top of the phone pointing up</li>
       <li>A firm waistband or compression shorts work best. A loose one lets the phone bounce</li>
+      <li>Side buttons pointing up or away from your body, so they don't get pressed and lock the phone</li>
       <li>Use "Check phone fit" to test it before you start</li>
     </ul>`,
   () => `<h2>Listen, don't look</h2>
@@ -968,8 +1135,8 @@ const ONB = [
   () => `<h2>Five modes, easy to hard</h2>
     <ol class="steps">
       <li><b>Statue</b>: balance on your plant leg and hold still</li>
-      <li><b>Plant &amp; Hold</b>: step into a firm plant and freeze</li>
-      <li><b>Shadow Kick</b>: kick an imaginary ball and hold your finish</li>
+      <li><b>Plant &amp; Stick</b>: step into a firm plant and stick it for a second</li>
+      <li><b>Shadow Kick</b>: kick an imaginary ball and stay balanced through the finish</li>
       <li><b>Real Kick</b>: the same with any footy</li>
       <li><b>Smart Footy Kick</b>: kick the NXTPlay smart footy and see how your balance affects each kick</li>
     </ol>
@@ -990,7 +1157,7 @@ function renderOnb(){
   if (hb) hb.onclick = async () => { initAudio(); hb.disabled = true;
     for (let i=0;i<3;i++){ beep(660,120); await sleep(1000); } beep(990,300); buzz(200); say('Lift'); await sleep(2500);
     beep(1200,150); await sleep(80); beep(1200,150); await sleep(600);
-    beep(220,400); await sleep(700); await say('Score 85. Elite rep. Rock-solid plant leg.'); hb.disabled = false; };
+    beep(220,400); await sleep(700); await say('Score 85. Elite rep. Rock-solid plant leg, keep it up.'); hb.disabled = false; };
 }
 $('onbNext').onclick = () => { if (onbI < ONB.length-1){ onbI++; renderOnb(); } else closeOnb(); };
 $('onbBack').onclick = () => { if (onbI > 0){ onbI--; renderOnb(); } };
@@ -999,7 +1166,7 @@ $('howBtn').onclick = () => openOnb(0);
 $('phoneBtn').onclick = () => openOnb(1);
 
 // ---------- UI wiring ----------
-function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); } if (id==='live') $('liveTip').textContent=''; }
+function show(id){ ['setup','live','results'].forEach(s => $(s).classList.toggle('hidden', s!==id)); if (id==='setup'){ syncSeg(); renderProgress(); renderModes(); renderAwakeInfo(); } if (id==='live') $('liveTip').textContent=''; }
 function syncSeg(){
   document.querySelectorAll('.seg[data-key]').forEach(seg => { const k=seg.dataset.key;
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[k])===b.dataset.v)); });
@@ -1030,6 +1197,7 @@ $('dlBtn').onclick = () => {
 };
 try { const lv = +localStorage.getItem('nxtplay-plb-level'); if (lv>=1 && lv<=5) S.level = lv; } catch(e){}
 show('setup');
+loadVoiceManifest();
 let seenOnb = false; try { seenOnb = !!localStorage.getItem('nxtplay-plb-onb'); } catch(e){}
 if (!seenOnb) openOnb(0);
 </script>
