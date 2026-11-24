@@ -98,6 +98,7 @@
   .mode-card.locked .lockmsg{color:var(--warn)}
   svg.lock{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;vertical-align:-1px;margin-right:3px}
   .seg button.locked{opacity:.45}
+  .setdone{text-align:center;font-size:22px;font-weight:800;color:var(--acc);margin:4px 0 12px}
   ul.sounds li{transition:color .2s} ul.sounds li.now{color:var(--acc)}
   .flash{animation:flash .6s}
   @keyframes flash{0%{background:rgba(47,191,113,.35)}100%{background:var(--card)}}
@@ -194,6 +195,7 @@
 
 <!-- RESULTS -->
 <section id="results" class="hidden">
+  <div id="setDone" class="setdone hidden">Set complete</div>
   <div id="resWarn" class="card warnbox hidden"></div>
   <div class="card">
     <h2>Set results <span class="pill" id="resMode"></span></h2>
@@ -299,57 +301,69 @@ function beep(freq=880, ms=150, vol=0.25){
     o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime+ms/1000); } catch(e){}
 }
 function buzz(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
-// ---------- Voice pack (Nick's voice clips) with device-voice fallback ----------
-// Clips live beside index.html in voice/<id>.mp3, listed in voice/manifest.json.
+// ---------- Voice packs (Nick, Josh, ...) with device-voice fallback ----------
+// Each pack is one bundled file beside index.html: voice-pack.json (Nick), voice-pack-josh.json (Josh), ...
 // Every sentence the app speaks maps to one clip id; "Score 85" is built from the "score" clip + the "n85" clip.
-let VOICE = null, voiceOn = true; const voiceBuf = {};
+const PACK_FILES = ['voice-pack.json', 'voice-pack-josh.json', 'voice-pack-peter.json'];
+let PACKS = {}, VOICE = null, voiceChoice = null;
+try { voiceChoice = localStorage.getItem('nxtplay-plb-voice'); } catch(e){}
 const slug = t => t.toLowerCase().replace(/&/g,' and ').replace(/['’"“”]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80);
 function sentences(text){
   return text.replace(/\s*\([^)]*\)/g,'').split(/(?<=[.!?])\s+/).map(x=>x.trim()).filter(Boolean);
 }
 function clipIds(text){
   const ids = [];
-  sentences(text).forEach(sn => { const m = sn.match(/^Score (\d+)[.!]?$/); if (m){ ids.push('score','n'+m[1]); } else ids.push(slug(sn)); });
+  sentences(text).forEach(sn => { const m = sn.match(/^(Best score|Score) (\d+)[.!]?$/);
+    if (m){ ids.push(m[1] === 'Score' ? 'score' : 'best-score', 'n'+m[2]); } else ids.push(slug(sn)); });
   return ids;
 }
-// Two ways to ship a pack: one bundled file (voice-pack.json beside index.html, easiest to upload),
-// or a voice/ folder of clips plus voice/manifest.json.
 async function loadVoiceManifest(){
-  VOICE = null;
-  try { const r = await fetch('voice-pack.json', {cache:'no-cache'}); if (!r.ok) throw 0;
-        const m = await r.json(); VOICE = {bundle: m.clips || {}, ids: new Set(Object.keys(m.clips || {})), name: m.voice || 'Nick'}; }
-  catch(e){
-    try { const r = await fetch('voice/manifest.json', {cache:'no-cache'}); if (!r.ok) throw 0;
-          const m = await r.json(); VOICE = {ext: m.format || 'mp3', ids: new Set(m.ids || []), name: m.voice || 'Nick'}; }
-    catch(e2){ VOICE = null; }
+  PACKS = {};
+  for (const file of PACK_FILES){
+    try { const r = await fetch(file, {cache:'no-cache'}); if (!r.ok) continue; const m = await r.json();
+          const fallback = file === 'voice-pack.json' ? 'Nick' : file.replace('voice-pack-','').replace('.json','').replace(/^./, c => c.toUpperCase());
+          const name = m.voice || fallback;
+          PACKS[name] = {name, file, bundle: m.clips || {}, ids: new Set(Object.keys(m.clips || {})), bufs: {}}; } catch(e){}
   }
-  renderVoiceInfo();
+  if (!Object.keys(PACKS).length){   // older layout: a voice/ folder of clips plus voice/manifest.json
+    try { const r = await fetch('voice/manifest.json', {cache:'no-cache'}); if (r.ok){ const m = await r.json(); const name = m.voice || 'Nick';
+          PACKS[name] = {name, ext: m.format || 'mp3', ids: new Set(m.ids || []), bufs: {}}; } } catch(e){}
+  }
+  pickVoice(); renderVoiceInfo();
 }
+function pickVoice(){ VOICE = voiceChoice === 'device' ? null : (PACKS[voiceChoice] || Object.values(PACKS)[0] || null); }
 const b64ToBuf = b => { const bin = atob(b), u = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i); return u.buffer; };
-let _voiceLoading = null;
 function loadVoiceBuffers(){
-  if (!VOICE || !audio || _voiceLoading) return _voiceLoading;
-  _voiceLoading = Promise.all([...VOICE.ids].map(async id => {
-    try { const ab = VOICE.bundle ? b64ToBuf(VOICE.bundle[id]) : await (await fetch(`voice/${id}.${VOICE.ext}`)).arrayBuffer();
-          voiceBuf[id] = await new Promise((ok, no) => audio.decodeAudioData(ab, ok, no)); } catch(e){}
+  const V = VOICE; if (!V || !audio) return null;
+  if (!V._loading) V._loading = Promise.all([...V.ids].map(async id => {
+    try { const ab = V.bundle ? b64ToBuf(V.bundle[id]) : await (await fetch(`voice/${id}.${V.ext}`)).arrayBuffer();
+          V.bufs[id] = await new Promise((ok, no) => audio.decodeAudioData(ab, ok, no)); } catch(e){}
   }));
-  return _voiceLoading;
+  return V._loading;
 }
 function playBuf(b){ try { if (audio.state !== 'running') audio.resume(); } catch(e){} return new Promise(res => { try { const src = audio.createBufferSource(); src.buffer = b; src.connect(audio.destination); src.onended = res; src.start(); } catch(e){ res(); } }); }
 async function say(text){
-  if (!(VOICE && voiceOn && audio)) return sayDevice(text);
+  const V = VOICE;
+  if (!(V && audio)) return sayDevice(text);
   await loadVoiceBuffers();
   for (const sn of sentences(text)){
     const ids = clipIds(sn);
-    if (ids.every(id => voiceBuf[id])){ for (const id of ids) await playBuf(voiceBuf[id]); await sleep(120); }
+    if (ids.every(id => V.bufs[id])){ for (const id of ids) await playBuf(V.bufs[id]); await sleep(120); }
     else await sayDevice(sn);   // a line with no clip falls back to the device voice
   }
 }
 function renderVoiceInfo(){
   const el = $('voiceInfo'); if (!el) return;
-  el.innerHTML = VOICE ? `Voice: <b>${VOICE.name}</b> (voice pack, ${VOICE.ids.size} clips) <label class="toggle" style="display:inline-flex;margin:0 0 0 8px"><input type="checkbox" id="voiceChk" ${voiceOn?'checked':''}> use it</label>`
-                       : 'Voice: device voice. Add voice-pack.json beside this page to use Nick\'s voice.';
-  const c = $('voiceChk'); if (c) c.onchange = e => { voiceOn = e.target.checked; };
+  const names = Object.keys(PACKS);
+  if (!names.length){ el.innerHTML = 'Voice: phone voice. Add voice-pack.json beside this page to use Nick\'s voice.'; return; }
+  const cur = VOICE ? VOICE.name : 'device';
+  el.innerHTML = `<div style="margin-bottom:6px">Coach voice</div><div class="seg voice-seg">` +
+    names.map(n => `<button data-voice="${n}" class="${cur===n?'on':''}">${n}</button>`).join('') +
+    `<button data-voice="device" class="${cur==='device'?'on':''}">Phone voice</button></div>`;
+  el.querySelectorAll('[data-voice]').forEach(btn => btn.onclick = () => {
+    voiceChoice = btn.dataset.voice; try { localStorage.setItem('nxtplay-plb-voice', voiceChoice); } catch(e){}
+    pickVoice(); renderVoiceInfo(); initAudio(); say(VOICE ? `Rep 1. Get ready to lift.` : 'Get ready.');
+  });
 }
 // Every line the app can say, split into clip-sized sentences (used to build the recording / generation script)
 function allVoiceLines(){
@@ -371,7 +385,10 @@ function allVoiceLines(){
   Object.keys(KICK_TYPES).forEach(m => ['step','run'].forEach(st => texts.push(`${KICK_TYPES[m].name}: ${STAGES[st].name} unlocked!`)));
   for (let i=1;i<=10;i++) texts.push(`Rep ${i}.`);
   const out = new Map();
-  texts.forEach(t => sentences(t).forEach(sn => { if (!/^Score \d+/.test(sn)) out.set(slug(sn), sn); }));
+  texts.push('Set complete.', 'Set stopped.', 'Perfect set!', 'Great set.', 'Keep at it.');
+  for (let m=1;m<=10;m++) for (let n=0;n<=m;n++) texts.push(`You passed ${n} of ${m} reps.`);
+  texts.forEach(t => sentences(t).forEach(sn => { if (!/^(Best score|Score) \d+/.test(sn)) out.set(slug(sn), sn); }));
+  out.set('best-score', 'Best score');
   for (let n=0;n<=100;n++) out.set('n'+n, String(n));
   return [...out].map(([id, text]) => ({id, text}));
 }
@@ -748,6 +765,18 @@ function finish(){
   const unlocked = checkUnlock();
   renderResults(unlocked);
   show('results');
+  announceSet(unlocked);
+}
+// Completion chime + spoken summary when the results page appears
+async function announceSet(unlocked){
+  const stopped = stopReq && setResults.length < S.reps;
+  const n = setResults.length, passed = setResults.filter(r => r.pass).length;
+  const scored = setResults.filter(r => !r.error).map(r => Math.round(r.score)), best = scored.length ? Math.max(...scored) : null;
+  const praise = passed === n ? 'Perfect set!' : passed / n >= 0.8 ? 'Great set.' : 'Keep at it.';
+  $('setDone').textContent = stopped ? 'Set stopped' : 'Set complete';
+  $('setDone').classList.remove('hidden');
+  if (!interruptedByLock){ for (const f of [660, 880, 1175]){ beep(f, 140, 0.22); await sleep(150); } buzz([80,60,80]); await sleep(250); }
+  await say(`${stopped ? 'Set stopped.' : 'Set complete.'} You passed ${passed} of ${n} reps.` + (best != null ? ` Best score ${best}.` : '') + (stopped ? '' : ' ' + praise) + (unlocked ? ' ' + unlocked : ''));
 }
 
 // ---------- History & unlock (stored on this device only) ----------
@@ -836,7 +865,7 @@ function fmt(v, d=1){ return v==null || isNaN(v) ? '-' : v.toFixed(d); }
 function renderResults(unlocked){
   const R0 = setResults[0], I0 = modeInfo(R0.mode, R0.stage);
   $('resMode').textContent = `${I0.name}${I0.stageName ? ': ' + I0.stageName : ''} · Level ${R0.level}`;
-  const um = $('unlockMsg'); um.classList.toggle('hidden', !unlocked); if (unlocked){ um.textContent = unlocked; say(unlocked); }
+  const um = $('unlockMsg'); um.classList.toggle('hidden', !unlocked); if (unlocked){ um.textContent = unlocked; }
   const statue = setResults[0].mode==='statue', smart = setResults[0].mode==='smartkick';
   let h = `<tr><th>Rep</th><th>Score</th><th>Tilt&nbsp;&deg;</th><th>Wobble</th>${statue?'<th>Held s</th>':'<th>Settle ms</th><th>Hip dip&nbsp;&deg;</th>'}${smart?'<th>Kick</th>':''}<th></th></tr>`;
   setResults.forEach((r,i) => {
