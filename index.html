@@ -311,6 +311,19 @@ const slug = t => t.toLowerCase().replace(/&/g,' and ').replace(/['’"“”]/g
 function sentences(text){
   return text.replace(/\s*\([^)]*\)/g,'').split(/(?<=[.!?])\s+/).map(x=>x.trim()).filter(Boolean);
 }
+// Numbers as words, the Australian way ("eighty-five", "one hundred"), so the voice reads them naturally
+function numWords(n){
+  const ones = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  if (n < 20) return ones[n]; if (n === 100) return 'one hundred';
+  return tens[Math.floor(n/10)] + (n % 10 ? '-' + ones[n % 10] : '');
+}
+// Preferred clips for a sentence: the whole phrase recorded in one go ("Score eighty-five"), then the joined clips
+function clipOptions(sn){
+  const m = sn.match(/^(Best score|Score) (\d+)[.!]?$/);
+  if (m){ const key = m[1] === 'Score' ? 'score' : 'best-score'; return [[`${key}-${m[2]}`], [key, 'n'+m[2]]]; }
+  return [[slug(sn)]];
+}
 function clipIds(text){
   const ids = [];
   sentences(text).forEach(sn => { const m = sn.match(/^(Best score|Score) (\d+)[.!]?$/);
@@ -347,8 +360,8 @@ async function say(text){
   if (!(V && audio)) return sayDevice(text);
   await loadVoiceBuffers();
   for (const sn of sentences(text)){
-    const ids = clipIds(sn);
-    if (ids.every(id => V.bufs[id])){ for (const id of ids) await playBuf(V.bufs[id]); await sleep(120); }
+    const ids = clipOptions(sn).find(opt => opt.every(id => V.bufs[id]));
+    if (ids){ for (const id of ids) await playBuf(V.bufs[id]); await sleep(120); }
     else await sayDevice(sn);   // a line with no clip falls back to the device voice
   }
 }
@@ -389,7 +402,12 @@ function allVoiceLines(){
   for (let m=1;m<=10;m++) for (let n=0;n<=m;n++) texts.push(`You passed ${n} of ${m} reps.`);
   texts.forEach(t => sentences(t).forEach(sn => { if (!/^(Best score|Score) \d+/.test(sn)) out.set(slug(sn), sn); }));
   out.set('best-score', 'Best score');
-  for (let n=0;n<=100;n++) out.set('n'+n, String(n));
+  for (let n=0;n<=100;n++){
+    const w = numWords(n), cap = w.charAt(0).toUpperCase() + w.slice(1);
+    out.set('n'+n, cap + '.');                          // fallback number clip
+    out.set('score-'+n, `Score ${w}.`);                 // whole phrases sound far more natural
+    out.set('best-score-'+n, `Best score ${w}.`);
+  }
   return [...out].map(([id, text]) => ({id, text}));
 }
 function sayDevice(text){
